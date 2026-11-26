@@ -1,7 +1,7 @@
 {
   "name": "roadforge-app",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,9 +12,11 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.5",
+    "@types/three": "^0.180.0",
     "maplibre-gl": "^6.19.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "three": "^0.180.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.6",

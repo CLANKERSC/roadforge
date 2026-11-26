@@ -13,7 +13,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from forge_worker import __version__
@@ -30,6 +30,12 @@ from forge_worker.services import route_along_roads, search_places
 from forge_worker.store import JobStore
 
 # Origins of the Tauri webview (Windows/Linux/macOS) and the Vite dev server.
+# files of a finished build that the app may read (name -> content type)
+BUILD_FILES = {
+    "preview.glb": "model/gltf-binary",
+    "drivability.json": "application/json",
+    "scene.json": "application/json",
+}
 ALLOWED_ORIGINS = [
     "tauri://localhost",
     "http://tauri.localhost",
@@ -148,6 +154,17 @@ def create_app(data_dir: Path, token: str, env: WorkerEnv | None = None) -> Fast
     def get_logs(job_id: str, after: int = 0) -> list[dict[str, Any]]:
         _get(job_id)
         return store.logs(job_id, after)
+
+    @app.get("/jobs/{job_id}/files/{name}", dependencies=auth)
+    def get_file(job_id: str, name: str) -> FileResponse:
+        """Results of a build that the app shows: the 3D preview and the drivability report."""
+        _get(job_id)
+        if name not in BUILD_FILES:
+            raise HTTPException(status_code=404, detail="no such file")
+        path = data_dir / "builds" / job_id / name
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="this build has not produced that file yet")
+        return FileResponse(path, media_type=BUILD_FILES[name])
 
     @app.post("/jobs/{job_id}/cancel", dependencies=auth)
     def cancel_job(job_id: str) -> dict[str, Any]:

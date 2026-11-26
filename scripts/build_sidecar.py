@@ -53,6 +53,8 @@ def main() -> None:
             "pyproj",
             "--collect-data",
             "certifi",
+            "--collect-data",
+            "trimesh",
             "--add-data",
             f"{ROOT / 'brand.json'}{sep}.",
             str(ROOT / "worker" / "run_worker.py"),

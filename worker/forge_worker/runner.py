@@ -153,13 +153,16 @@ class JobRunner:
                 stage.run(ctx)
                 done.append(stage.id)
                 job = self.store.update(job.id, completed_stages=done)
+            # the last stage's closing words are the result line the user reads
+            last = self.store.get(job.id)
+            closing = last.message if last and last.message and not last.message.endswith("…") else "Done"
             job = self.store.update(
                 job.id,
                 state="done",
                 stage=None,
                 progress=1.0,
                 stage_progress=1.0,
-                message="Done",
+                message=closing,
                 finished_at=time.time(),
             )
             self.log(job.id, "Job finished")

@@ -77,6 +77,17 @@ export class WorkerClient {
       body: JSON.stringify({ kind: "build", name, params: { selection, name } }),
     });
   }
+  /** A result file of a build (3D preview, reports). */
+  async fileBytes(jobId: string, name: string): Promise<ArrayBuffer> {
+    const res = await fetch(`${this.info.url}/jobs/${jobId}/files/${name}`, {
+      headers: { Authorization: `Bearer ${this.info.token}` },
+    });
+    if (!res.ok) throw new Error(`${name} is not available (${res.status})`);
+    return await res.arrayBuffer();
+  }
+  fileJson<T>(jobId: string, name: string) {
+    return this.req<T>(`/jobs/${jobId}/files/${name}`);
+  }
   cancel(jobId: string) {
     return this.req<Job>(`/jobs/${jobId}/cancel`, { method: "POST" });
   }
