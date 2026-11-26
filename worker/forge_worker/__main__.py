@@ -12,6 +12,7 @@ import os
 import secrets
 import socket
 import sys
+import threading
 
 import uvicorn
 
@@ -25,11 +26,26 @@ def _free_port() -> int:
         return int(s.getsockname()[1])
 
 
+def _exit_when_stdin_closes() -> None:
+    try:
+        while sys.stdin.read(4096):
+            pass
+    finally:
+        os._exit(0)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="forge_worker")
     parser.add_argument("--port", type=int, default=int(os.environ.get("FORGE_PORT", "0")))
     parser.add_argument("--token", default=os.environ.get("FORGE_TOKEN") or secrets.token_urlsafe(32))
+    parser.add_argument(
+        "--exit-on-stdin-close",
+        action="store_true",
+        help="exit when stdin closes (the desktop app passes this so the worker dies with it)",
+    )
     args = parser.parse_args(argv)
+    if args.exit_on_stdin_close:
+        threading.Thread(target=_exit_when_stdin_closes, daemon=True).start()
 
     port = args.port or _free_port()
     print(json.dumps({"port": port, "token": args.token}), flush=True)

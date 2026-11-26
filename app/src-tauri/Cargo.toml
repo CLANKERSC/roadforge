@@ -1,0 +1,17 @@
+[package]
+name = "roadforge"
+version = "0.0.1"
+description = "Desktop shell: shows the UI and runs the local Python worker"
+edition = "2021"
+
+[lib]
+name = "roadforge_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }   # desktop window + webview, small installer
+serde = { version = "1", features = ["derive"] }  # pass worker info to the UI
+serde_json = "1"                                   # parse the worker's startup line

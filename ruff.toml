@@ -1,0 +1,9 @@
+line-length = 110
+target-version = "py311"
+extend-exclude = ["app", "build"]
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "BLE"]
+
+[lint.isort]
+known-first-party = ["forge_worker"]
