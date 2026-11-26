@@ -12,3 +12,4 @@ cache/
 .DS_Store
 app/src-tauri/binaries/
 build/
+app/src-tauri/gen/

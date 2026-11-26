@@ -9,7 +9,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from forge_worker.env import WorkerEnv
 
 
 class JobCancelled(Exception):
@@ -23,6 +27,8 @@ class JobInterrupted(Exception):
 class StageContext(Protocol):
     job_id: str
     params: dict[str, Any]
+    workdir: Path  # this build's own folder (selection.geojson, manifests, later the scene)
+    env: WorkerEnv  # shared download cache and HTTP client
 
     def report(self, fraction: float, message: str = "") -> None: ...
     def log(self, message: str, level: str = "info") -> None: ...

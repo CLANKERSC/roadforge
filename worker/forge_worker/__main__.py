@@ -50,8 +50,7 @@ def main(argv: list[str] | None = None) -> None:
     port = args.port or _free_port()
     print(json.dumps({"port": port, "token": args.token}), flush=True)
 
-    db_path = data_dir() / "jobs.sqlite3"
-    app = create_app(db_path, args.token)
+    app = create_app(data_dir(), args.token)
     # 127.0.0.1 only: nothing on the network can reach the worker.
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
