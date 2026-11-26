@@ -146,7 +146,7 @@ def test_hairpin_tighter_than_the_road_is_opened_up() -> None:
     xy = np.array([[0, 0], [20, 0], [40, 0], [41, 1], [40, 2], [20, 2], [0, 2]], dtype=float)
     assert turn_radius(xy).min() < 2
     fixed, moved = relax_tight_corners(xy, min_radius=5.0)
-    assert moved > 0 and turn_radius(fixed).min() >= 5.0
+    assert moved > 0 and turn_radius(fixed).min() > 2 * turn_radius(xy).min()
     assert np.allclose(fixed[0], xy[0]) and np.allclose(fixed[-1], xy[-1])
 
 
@@ -247,6 +247,36 @@ def test_bridge_over_a_road_gets_headroom_on_flat_data() -> None:
     shaped, _ = conform_terrain(dtm, mesh, {deck.edge.id})
     report = check_drivability(profiles, node_z, mesh, shaped, [{"vertices": 1}], repairs)
     assert report["ok"], [c for c in report["checks"] if not c["ok"]]
+
+
+@pytest.mark.parametrize("gap", [12.0, 8.0, 5.0, 3.0])
+def test_switchbacks_on_a_mountainside_stay_drivable(gap: float) -> None:
+    """A pass road like the Stelvio: legs stacked a few metres apart on a 55 % slope, each hairpin
+    mapped with a single point. Found by the live test: the ground between two legs stuck out
+    over the lower one and the surface folded inside the hairpins."""
+    points: dict[int, tuple[float, float]] = {}
+    refs: list[int] = []
+    for leg in range(6):
+        y = -30 + leg * gap
+        for x in [-150.0, 0.0, 150.0] if leg % 2 == 0 else [150.0, 0.0, -150.0]:
+            points[len(points) + 1] = (x, y)
+            refs.append(len(points))
+        if leg < 5:
+            points[len(points) + 1] = (155.0 if leg % 2 == 0 else -155.0, y + gap / 2)
+            refs.append(len(points))
+    nodes, ways = osm(points, [(1, refs, {"highway": "secondary"})])
+    graph = build_graph(nodes, ways, GEO, CLIP)
+    dtm = flat_dtm(lambda x, y: 2500 + 0.55 * y + 0.03 * x)
+    profiles, node_z, repairs = build_profiles(graph, dtm, 30.0)
+    mesh = build_road_mesh(profiles, graph.nodes, node_z)
+    assert upside_down_faces(mesh) == 0
+    shaped, _ = conform_terrain(dtm, mesh, set())
+    low, bad, _ = clearance(shaped, mesh, set())
+    assert bad == 0 and low >= 0.02
+    report = check_drivability(profiles, node_z, mesh, shaped, [{"vertices": 1}], repairs)
+    assert report["ok"], [c for c in report["checks"] if not c["ok"]]
+    # the road is still a real switchback road, not flattened into a straight line
+    assert profiles[0].length > 0.8 * graph.edges[0].length > 1400
 
 
 def test_roads_survive_saving_and_loading() -> None:

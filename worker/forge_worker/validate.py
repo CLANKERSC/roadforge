@@ -32,6 +32,7 @@ REPAIR_TEXT = {
     "grade_limited_points": "Points lowered or raised to keep the slope drivable",
     "bumpy_metres_smoothed": "Metres of road smoothed where the height data was bumpy",
     "height_kinks_eased": "Points eased where the road height changed too suddenly",
+    "hairpins_narrowed_inside": "Roads narrowed on the inside of a hairpin tighter than the road is wide",
     "junction_slivers_dropped": "Overlapping slivers removed where roads meet at a very flat angle",
     "overpasses_given_headroom": "Places where one road passes over another, given headroom",
     "overpasses_with_low_headroom": "Overpasses still under 5 m headroom (roads too short to ramp)",

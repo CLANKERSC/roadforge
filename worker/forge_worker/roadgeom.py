@@ -78,8 +78,24 @@ def turn_radius(xy: A) -> A:
     return r
 
 
+def curvature(xy: A) -> A:
+    """Signed bend at each point in 1/m: positive turns left, negative right, 0 on straights."""
+    k = np.zeros(len(xy))
+    if len(xy) < 3:
+        return k
+    a, b, c = xy[:-2], xy[1:-1], xy[2:]
+    ab, bc, ac = (np.linalg.norm(b - a, axis=1), np.linalg.norm(c - b, axis=1), np.linalg.norm(c - a, axis=1))
+    cross = (b[:, 0] - a[:, 0]) * (c[:, 1] - b[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - b[:, 0])
+    k[1:-1] = 2.0 * cross / np.maximum(ab * bc * ac, 1e-9)
+    return k
+
+
 def relax_tight_corners(xy: A, min_radius: float, max_iter: int = 200) -> tuple[A, int]:
-    """Open up corners tighter than the road is wide, so the inside edge can't fold over itself."""
+    """Open up corners tighter than the road is wide, a little at a time.
+
+    Only a gentle correction: it must not flatten a real hairpin. Whatever is still too tight
+    afterwards is handled when the surface is built, by narrowing the inside of the bend.
+    """
     xy = xy.copy()
     touched = np.zeros(len(xy), dtype=bool)
     for _ in range(max_iter):
@@ -210,7 +226,7 @@ def build_profiles(graph: RoadGraph, dtm: Dtm, source_res: float) -> tuple[list[
     profiles: list[Profile] = []
     for e in graph.edges:
         xy = resample(e.xy)
-        xy, fixed = relax_tight_corners(xy, min_radius=e.width / 2 + SHOULDER_M + APRON_M + 0.3)
+        xy, fixed = relax_tight_corners(xy, min_radius=e.width / 2 + SHOULDER_M + 0.25)
         repairs["tight_corner_points_opened"] += fixed
         s = cumulative(xy)
         ground = dtm.sample(xy[:, 0], xy[:, 1])

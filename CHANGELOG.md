@@ -17,6 +17,11 @@
   tighter than the road is wide are opened; slopes are limited per road type (8 % motorway to
   30 % track); sudden kinks in height are eased; all roads arrive at a junction at one height;
   a road passing over another gets 5 m headroom even when the height data shows none.
+- Mountain switchbacks: the ground between two stacked legs is cut so it never hangs over the
+  lower leg, and in a hairpin tighter than the road is wide the inside edge is pulled in instead
+  of folding over. (Both found by the live Stelvio build, now also covered by offline tests.)
+- ČÚZK height tiles are read with the projection the adapter declares; the projection written
+  inside the files can't be transformed by PROJ (found by the live Prague build).
 - Terrain is pressed 10 cm below every road and blended back to natural ground over a few metres.
   Under bridges the ground is only lowered if it would touch the deck.
 - Drivability check at the end of every build: welded seams, no folded surface, terrain never
@@ -26,7 +31,7 @@
   next to it. The build card ends with the verdict instead of just "Done".
 - Deterministic: building the same selection twice gives byte-identical `scene.json`,
   `roads.json`, `drivability.json` and `preview.glb` (tested).
-- Tests: 58 worker tests (a fake town with bridges, unconnected crossings, hairpins, noisy LiDAR
+- Tests: 62 worker tests (a fake town with bridges, unconnected crossings, hairpins, noisy LiDAR
   with holes and spikes), live builds of Prague and the Stelvio pass that must pass every
   drivability check, the click-through test now opens the 3D preview, and the packaged Windows
   worker's self-test builds a small 3D scene.

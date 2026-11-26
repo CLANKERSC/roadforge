@@ -21,6 +21,7 @@ from forge_worker.roadgeom import (
     Profile,
     cross_section_drop,
     cross_section_offsets,
+    curvature,
     normals,
 )
 
@@ -80,6 +81,23 @@ class _Arm:
     def outward(self) -> list[int]:
         """The end row from the right side to the left side, looking away from the junction."""
         return self.row[::-1] if self.at_start else self.row
+
+
+def _inside_limits(p: Profile, stations: A) -> tuple[A, A]:
+    """How far the surface may reach to the left and to the right at each station.
+
+    On the inside of a bend the surface can't reach further than the bend's centre, or it would
+    fold over itself. In a hairpin tighter than the road is wide, the inside edge is pulled in.
+    """
+    k = curvature(p.xy)
+    k_left, k_right = np.maximum(k, 0.0), np.maximum(-k, 0.0)
+    if len(k) >= 3:  # the tightest bend within a few metres decides
+        shifts = (-3, -2, -1, 1, 2, 3)
+        k_left = np.max(np.stack([k_left, *[np.roll(k_left, i) for i in shifts]]), axis=0)
+        k_right = np.max(np.stack([k_right, *[np.roll(k_right, i) for i in shifts]]), axis=0)
+    left = 0.7 / np.maximum(np.interp(stations, p.s, k_left), 1e-6)
+    right = 0.7 / np.maximum(np.interp(stations, p.s, k_right), 1e-6)
+    return left, right
 
 
 def _point_at(p: Profile, s: float) -> tuple[A, float, A]:
@@ -147,12 +165,21 @@ def build_road_mesh(profiles: list[Profile], node_xy: list[tuple[float, float]],
         rows: list[list[int]] = []
         centre = np.zeros((len(stations), 3))
         nrm_all = np.zeros((len(stations), 2))
+        reach_left, reach_right = _inside_limits(p, stations)
+        if (reach_left < -offs[1]).any() or (reach_right < offs[-2]).any():
+            stats["hairpins_narrowed_inside"] += 1
         for k, s in enumerate(stations):
             xy, z, nrm = _point_at(p, float(s))
             centre[k] = (xy[0], xy[1], z)
             nrm_all[k] = nrm
             row = []
-            for off, dz in zip(offs, drop, strict=True):
+            for raw, dz in zip(offs, drop, strict=True):
+                # negative offsets are on the left; keep each side short of the bend's centre
+                off = (
+                    max(float(raw), -float(reach_left[k]))
+                    if raw < 0
+                    else min(float(raw), float(reach_right[k]))
+                )
                 row.append(len(verts))
                 # nrm points left, offsets run from negative to positive: subtract to start on the left
                 verts.append((float(xy[0] - nrm[0] * off), float(xy[1] - nrm[1] * off), z - float(dz)))

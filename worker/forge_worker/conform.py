@@ -83,6 +83,10 @@ def conform_terrain(
         t = np.clip((dist - margin) / falloff, 0.0, 1.0)
         blend = t * t * (3.0 - 2.0 * t)  # 0 under the road, 1 far away
         z = (target * (1.0 - blend) + z * blend).astype(np.float32)
+        # Every grid point next to a road cell must sit below that road, whichever road is
+        # nearest to it. This matters on switchbacks, where the ground between two legs would
+        # otherwise follow the upper leg and stick out over the lower one.
+        z = np.minimum(z, low - CLEARANCE_M - extra_clearance).astype(np.float32)
     if bridge_faces.any():
         deck = road_height_raster(dtm, mesh, bridge_faces)
         deck = ndimage.minimum_filter(np.where(np.isfinite(deck), deck, np.inf), size=3, mode="nearest")

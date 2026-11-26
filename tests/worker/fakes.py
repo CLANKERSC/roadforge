@@ -65,6 +65,13 @@ def fake_height(lon: Any, lat: Any) -> Any:
     return 300.0 + 40.0 * np.sin(np.asarray(lon) * 200.0) + 30.0 * np.cos(np.asarray(lat) * 300.0)
 
 
+# The real ČÚZK tiles describe their projection in a way PROJ can't transform from (seen in the
+# live test). The fake does the same, so the build must rely on what the adapter declares.
+UNUSABLE_CRS = (
+    'LOCAL_CS["S-JTSK / Krovak East North",UNIT["metre",1],AXIS["Easting",EAST],AXIS["Northing",NORTH]]'
+)
+
+
 def fake_dem_cuzk(bbox: tuple[float, float, float, float], px: int, noise: bool) -> bytes:
     """A georeferenced 2 m LiDAR-like tile in EPSG:5514 for the requested box."""
     west, south, east, north = bbox
@@ -81,7 +88,7 @@ def fake_dem_cuzk(bbox: tuple[float, float, float, float], px: int, noise: bool)
         z[200:204, 300:306] = -9999.0
     buf = io.BytesIO()
     with rasterio.open(
-        buf, "w", driver="GTiff", width=px, height=px, count=1, dtype="float32", crs="EPSG:5514",
+        buf, "w", driver="GTiff", width=px, height=px, count=1, dtype="float32", crs=UNUSABLE_CRS,
         transform=from_origin(west, north, res, res), nodata=-9999.0,
     ) as ds:  # fmt: skip
         ds.write(z.astype(np.float32), 1)

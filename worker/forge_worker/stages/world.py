@@ -150,6 +150,7 @@ def run_roads(ctx: StageContext) -> None:
         **graph.repairs,
         **repairs,
         "junction_slivers_dropped": mesh.stats.get("junction_slivers_dropped", 0),
+        "hairpins_narrowed_inside": mesh.stats.get("hairpins_narrowed_inside", 0),
         "terrain_cells_filled": terrain_stats["gap_cells_filled"],
         "terrain_spikes_removed": terrain_stats["spike_cells_fixed"],
         "terrain_extra_passes": passes,

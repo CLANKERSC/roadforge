@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import rasterio
 from numpy.typing import NDArray
+from rasterio.crs import CRS
 from rasterio.transform import Affine
 from rasterio.warp import Resampling, reproject, transform_bounds
 from scipy import ndimage
@@ -142,7 +143,11 @@ def build_dtm(
     for entry in sorted(files, key=lambda e: e["key"]):
         with rasterio.open(cache_root / entry["path"]) as ds:
             # where does this tile land in our grid?
-            left, b, r, t = transform_bounds(ds.crs, dst_crs, *ds.bounds, densify_pts=21)
+            # Trust the projection the source adapter declared over the one written in the file:
+            # ČÚZK's GeoTIFFs carry S-JTSK in a form PROJ can't transform from.
+            declared = entry.get("meta", {}).get("crs")
+            src_crs = CRS.from_user_input(declared) if declared else ds.crs
+            left, b, r, t = transform_bounds(src_crs, dst_crs, *ds.bounds, densify_pts=21)
             c0 = max(0, int(math.floor((left - west) / res)) - 1)
             c1 = min(cols, int(math.ceil((r - west) / res)) + 1)
             r0 = max(0, int(math.floor((north - t) / res)) - 1)
@@ -152,8 +157,10 @@ def build_dtm(
             part = np.full((r1 - r0, c1 - c0), np.nan, dtype=np.float32)
             nodata = ds.nodata if ds.nodata is not None else -9999.0
             reproject(
-                source=rasterio.band(ds, 1),
+                source=ds.read(1),
                 destination=part,
+                src_transform=ds.transform,
+                src_crs=src_crs,
                 src_nodata=nodata,
                 dst_transform=Affine(res, 0.0, west + c0 * res, 0.0, -res, north - r0 * res),
                 dst_crs=dst_crs,
