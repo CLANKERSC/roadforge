@@ -69,3 +69,15 @@ export interface RouteResult {
   routed: boolean;
   warning: string;
 }
+
+export interface DrivabilityReport {
+  ok: boolean;
+  checks: { id: string; label: string; ok: boolean; value: number | string; limit: number | string; unit: string }[];
+  repairs: { id: string; count: number; text: string }[];
+  notes: string[];
+  summary: { road_km: number; roads: number; junctions: number; bridges: number; separate_networks: number };
+}
+
+export interface SceneInfo {
+  spawn: { xyz: [number, number, number]; heading_deg: number } | null;
+}

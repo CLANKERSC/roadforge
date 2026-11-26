@@ -1,6 +1,6 @@
 [project]
 name = "forge-worker"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local pipeline worker for the map-to-track generator"
 requires-python = ">=3.11"
 dependencies = [
@@ -12,6 +12,8 @@ dependencies = [
   "shapely>=2.0",     # polygon maths: buffer, area, intersections
   "numpy>=1.26",      # raster arrays
   "rasterio>=1.3",    # read/crop GeoTIFFs, incl. remote cloud-optimised ones
+  "scipy>=1.11",      # filters, distance transforms, interpolation
+  "trimesh>=4.0",     # write the engine-neutral scene as GLB
 ]
 
 [project.optional-dependencies]
@@ -36,5 +38,5 @@ strict = true
 python_version = "3.11"
 
 [[tool.mypy.overrides]]
-module = ["rasterio", "rasterio.*"]
+module = ["rasterio", "rasterio.*", "scipy", "scipy.*", "trimesh", "trimesh.*"]
 ignore_missing_imports = true

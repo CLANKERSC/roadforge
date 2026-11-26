@@ -10,11 +10,18 @@ open data and exports a ready-to-install ZIP for each game.
 
 ## Status
 
-**Milestone M1 – selection + downloads** (this version). You can search a place anywhere in the
-world, draw an **Area** (box or free shape) or a **Road A to B** with a width on each side, see
-its size, limits and which data will be used, name it, pick the game(s) and press **Build it**.
-The build checks the selection and downloads terrain heights, imagery and OpenStreetMap data
-into a local cache. Turning that into a drivable map starts in M2. See [CHANGELOG.md](CHANGELOG.md).
+**Milestone M2 – terrain and roads in 3D** (this version). You can search a place anywhere in the
+world, draw an **Area** (box or free shape) or a **Road A to B** with a width on each side, name
+it, pick the game(s) and press **Build it**. The build downloads terrain heights, imagery and
+OpenStreetMap data, then builds the roads and the terrain as a 3D model: real road widths, real
+hills, junctions, bridges and lane markings. Every build ends with an automatic **drivability
+check**, and **View in 3D** shows the result with the list of what was checked and repaired.
+Writing the map into the games' own formats starts in M3. See [CHANGELOG.md](CHANGELOG.md).
+
+**The quality rule:** roads follow the real world as closely as the data allows, but they always
+come out drivable. Where the map or the height data is wrong or too rough (a bump, a cliff, a
+crossing that isn't connected, a corner tighter than a car can turn, ground poking through the
+asphalt), the build repairs it and says so in the report.
 
 Data quality depends on the place: everywhere on Earth gets OpenStreetMap + 30 m elevation +
 10 m satellite imagery; the Czech Republic gets 2 m LiDAR terrain and 0.5 m aerial photos.
@@ -90,6 +97,9 @@ progress over Server-Sent Events (`/events?token=…`). The worker exits when th
 | requests + tenacity | downloads with retries and backoff |
 | pyproj, shapely, numpy | projections, polygon maths, arrays |
 | rasterio (GDAL) | read/crop GeoTIFFs, also remote cloud-optimised ones |
+| scipy | smoothing filters, distance maps and curve fitting for terrain and roads |
+| trimesh | writes the 3D preview file (GLB) |
+| three.js | shows the 3D preview in the app |
 | Playwright (dev only) | click-through test of the UI |
 | PyInstaller | ships the worker as one .exe inside the installer |
 | Tauri 2 | desktop window with a small installer (.msi / .exe) |

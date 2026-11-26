@@ -95,6 +95,23 @@ async function main() {
   const log = await page.locator(".log").innerText();
   check(log.includes("ČÚZK DMR 5G") && log.includes("OpenStreetMap"), "build log names the data sources used");
   await shot("3-area-done");
+  check(log.includes("OK: Terrain never pokes through the road") && !log.includes("PROBLEM"), "build log shows the drivability checks passing");
+
+  // 4b. the finished build opens in 3D with its drivability report
+  await page.getByRole("button", { name: "View in 3D" }).first().click();
+  await page.locator('.preview canvas[data-ready="true"]').waitFor({ timeout: 60000 });
+  const triangles = Number(await page.locator(".preview canvas").getAttribute("data-triangles"));
+  check(triangles > 20000, `3D preview loaded the model (${triangles} triangles)`);
+  await page.waitForFunction(() => window.__preview.drawn() > 20000, null, { timeout: 30000 });
+  check(true, "3D preview is really drawing roads and terrain");
+  check((await page.locator(".verdict").innerText()).includes("all checks passed"), "report says the map is drivable");
+  check((await page.locator(".checks li").count()) >= 8, "report lists every check");
+  check((await page.locator(".repairs").innerText()).length > 20, "report lists what was repaired");
+  await page.waitForTimeout(800);
+  await shot("3b-preview-3d");
+  await page.keyboard.press("Escape");
+  await page.locator(".preview").waitFor({ state: "detached" });
+  check((await page.getByTestId("readout").count()) === 1, "closing the preview keeps the drawing");
 
   // 5. undo and clear
   await page.getByRole("button", { name: "Clear" }).click();

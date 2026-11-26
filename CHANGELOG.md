@@ -1,5 +1,55 @@
 # Changelog
 
+## M2 – Terrain + roads (2026-11-26), version 0.2.0
+
+- New build stages after the downloads: 03 terrain (`dtm.tif`), 04 roads (`roads.json`,
+  `dtm_conformed.tif`), 05 scene (`scene.json`, `preview.glb`), 06 check (`drivability.json`).
+  Each stage is cached and skipped on a rebuild when its inputs did not change.
+- Terrain: all height tiles are joined into one grid in the map's own metric projection (2 m
+  cells; 3 to 8 m for very large selections). Holes are filled, LiDAR spikes removed, coarse 30 m
+  data is smoothed so it has no stair steps.
+- Roads from OpenStreetMap: type, lanes, width (`width` tag or lanes × lane width per type),
+  surface, one-way, bridges, tunnels, layers. Ways are split at junctions, clipped to the
+  selection, and joined back into long stretches.
+- Road shape: smooth centreline every 2 m, 2 % crown, 0.5 m verge, a sloping apron that dips into
+  the terrain, lane markings, low walls on bridges. Junctions are welded polygons: no gaps.
+- **Always drivable:** crossings that are not connected on the map become junctions; corners
+  tighter than the road is wide are opened; slopes are limited per road type (8 % motorway to
+  30 % track); sudden kinks in height are eased; all roads arrive at a junction at one height;
+  a road passing over another gets 5 m headroom even when the height data shows none.
+- Mountain switchbacks: the ground between two stacked legs is cut so it never hangs over the
+  lower leg, and in a hairpin tighter than the road is wide the inside edge is pulled in instead
+  of folding over. (Both found by the live Stelvio build, now also covered by offline tests.)
+- ČÚZK height tiles are read with the projection the adapter declares; the projection written
+  inside the files can't be transformed by PROJ (found by the live Prague build).
+- Terrain is pressed 10 cm below every road and blended back to natural ground over a few metres.
+  Under bridges the ground is only lowered if it would touch the deck.
+- Drivability check at the end of every build: welded seams, no folded surface, terrain never
+  through the road, slope and kink limits, junction heights, mesh size for Assetto Corsa
+  (< 65,000 points). The report lists every check and everything that was repaired.
+- App: **View in 3D** on a finished build (three.js, loaded only when opened) with the report
+  next to it. The build card ends with the verdict instead of just "Done".
+- Deterministic: building the same selection twice gives byte-identical `scene.json`,
+  `roads.json`, `drivability.json` and `preview.glb` (tested).
+- Tests: 62 worker tests (a fake town with bridges, unconnected crossings, hairpins, noisy LiDAR
+  with holes and spikes), live builds of Prague and the Stelvio pass that must pass every
+  drivability check, the click-through test now opens the 3D preview, and the packaged Windows
+  worker's self-test builds a small 3D scene.
+
+### Known issues
+
+- Still no game export: the result is the engine-neutral 3D scene. Assetto Corsa export is M3.
+- Tunnels are built as open cuttings for now (drivable, but there is no roof).
+- No buildings, trees, textures or satellite image on the terrain yet (plain colours).
+- Banking in corners is not taken from the terrain yet; every road has a plain 2 % crown.
+- Roundabouts and very complex junctions are built from the same simple junction shape; they are
+  drivable but can look rough.
+- A road selection whose bounding box is larger than about 44 x 44 km is refused (terrain is
+  held in memory as one grid). Long roads that run mostly straight are fine.
+- A 6 x 6 km town takes a few minutes and around 2 GB of memory to build.
+- The 3D preview of very large maps shows simplified terrain.
+- The installer has still never been run on a real Windows PC by a person.
+
 ## M1 – Selection + fetch (2026-11-26), version 0.1.0
 
 - Draw screen: Area (box or free shape) and Road A to B (waypoints, width each side 50–1000 m,

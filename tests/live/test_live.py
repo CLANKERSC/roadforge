@@ -37,10 +37,16 @@ def run_build(
     with TestClient(create_app(data_dir, TOKEN)) as client:
         body = {"kind": "build", "name": "Live test", "params": {"selection": selection, "name": "Live test"}}
         job = client.post("/jobs", json=body, headers=AUTH).json()
-        job = wait_for(client, job["id"], {"done", "failed", "cancelled"}, timeout=600)
+        job = wait_for(client, job["id"], {"done", "failed", "cancelled"}, timeout=900)
         logs = client.get(f"/jobs/{job['id']}/logs", headers=AUTH).json()
     print("\n".join(f"{entry['level']}: {entry['message']}" for entry in logs))
     assert job["state"] == "done", job["message"]
+    # the real place must come out drivable: every check of the drivability report passes
+    report = json.loads((data_dir / "builds" / job["id"] / "drivability.json").read_text(encoding="utf-8"))
+    print(json.dumps(report["summary"], indent=1))
+    assert report["ok"], [c for c in report["checks"] if not c["ok"]]
+    assert report["summary"]["road_km"] > 0.3
+    assert (data_dir / "builds" / job["id"] / "preview.glb").stat().st_size > 50_000
     manifest = json.loads(
         (data_dir / "builds" / job["id"] / "fetch_manifest.json").read_text(encoding="utf-8")
     )

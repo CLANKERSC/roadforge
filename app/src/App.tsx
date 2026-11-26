@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { MapView, type FlyTarget } from "./components/MapView";
 import { JobsPanel } from "./components/JobsPanel";
+import { PreviewPanel } from "./components/PreviewPanel";
 import { BuildPanel } from "./components/BuildPanel";
 import { SearchBox } from "./components/SearchBox";
 import { brand } from "./lib/brand";
 import { applyEvent, emptyJobsState, sortedJobs, withJobs, type JobsState } from "./lib/jobs";
 import { draftReducer, emptyDraft, toSelection, type Game, type LonLat } from "./lib/selection";
-import type { Place, Plan, RouteResult } from "./lib/types";
+import type { Job, Place, Plan, RouteResult } from "./lib/types";
 import { getWorkerInfo, WorkerClient } from "./lib/worker";
 
 type Status = { kind: "connecting" } | { kind: "ok"; version: string } | { kind: "error"; message: string };
@@ -25,6 +26,8 @@ export default function App() {
   const [planning, setPlanning] = useState(false);
   const [flyTo, setFlyTo] = useState<FlyTarget | null>(null);
   const flyNonce = useRef(0);
+  const [preview, setPreview] = useState<Job | null>(null);
+  const closePreview = useCallback(() => setPreview(null), []);
 
   // Find the worker and check it's alive. Retry for a while: it may still be starting.
   useEffect(() => {
@@ -179,9 +182,10 @@ export default function App() {
             canBuild={canBuild}
             onBuild={build}
           />
-          <JobsPanel jobs={jobs} logs={state.logs} onCancel={cancel} onRebuild={rebuild} onShowLogs={showLogs} />
+          <JobsPanel jobs={jobs} logs={state.logs} onCancel={cancel} onRebuild={rebuild} onShowLogs={showLogs} onPreview={setPreview} />
         </aside>
       </main>
+      {preview && client && <PreviewPanel job={preview} client={client} onClose={closePreview} />}
       <footer className="disclaimer small muted">
         Maps made with {brand.name} are approximations for games, not for navigation.
       </footer>

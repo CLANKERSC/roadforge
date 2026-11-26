@@ -16,6 +16,7 @@ interface Props {
   onCancel: (id: string) => void;
   onRebuild: (id: string) => void;
   onShowLogs: (id: string) => void;
+  onPreview: (job: Job) => void;
 }
 
 function useNow(): number {
@@ -27,7 +28,7 @@ function useNow(): number {
   return now;
 }
 
-export function JobsPanel({ jobs, logs, onCancel, onRebuild, onShowLogs }: Props) {
+export function JobsPanel({ jobs, logs, onCancel, onRebuild, onShowLogs, onPreview }: Props) {
   const [openLogs, setOpenLogs] = useState<string | null>(null);
   const now = useNow();
 
@@ -50,6 +51,7 @@ export function JobsPanel({ jobs, logs, onCancel, onRebuild, onShowLogs }: Props
             }}
             onCancel={() => onCancel(job.id)}
             onRebuild={() => onRebuild(job.id)}
+            onPreview={() => onPreview(job)}
           />
         ))}
       </ul>
@@ -65,6 +67,7 @@ function JobCard(props: {
   onToggleLogs: () => void;
   onCancel: () => void;
   onRebuild: () => void;
+  onPreview: () => void;
 }) {
   const { job, now, logs } = props;
   const eta = etaSeconds(job, now);
@@ -104,6 +107,11 @@ function JobCard(props: {
         {active && (
           <button onClick={props.onCancel} disabled={job.cancel_requested}>
             Cancel
+          </button>
+        )}
+        {job.state === "done" && job.completed_stages.includes("check") && (
+          <button className="primary" onClick={props.onPreview}>
+            View in 3D
           </button>
         )}
         {!active && <button onClick={props.onRebuild}>Rebuild</button>}

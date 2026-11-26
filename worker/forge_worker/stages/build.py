@@ -1,12 +1,15 @@
-"""The real build pipeline. M1 has the first two stages; later milestones append the rest.
+"""The real build pipeline. Later milestones append the game exporters.
 
-01 select -> selection.geojson, georef.json
-02 fetch  -> fetch_manifest.json (which files from which source, with licences)
+01 select  -> selection.geojson, georef.json
+02 fetch   -> fetch_manifest.json (which files from which source, with licences)
+03 terrain -> dtm.tif                          (stages/world.py)
+04 roads   -> roads.json, dtm_conformed.tif
+05 scene   -> scene.json, preview.glb
+06 check   -> drivability.json
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,40 +19,17 @@ from forge_worker import licences
 from forge_worker.geo import Georef
 from forge_worker.naming import ac_track_id, beamng_level_id
 from forge_worker.pipeline import Pipeline, Stage, StageContext, register
-from forge_worker.selection import Selection, SelectionError, SelectionRequest, build_selection
+from forge_worker.selection import Selection, SelectionError
 from forge_worker.sources.base import FetchContext, FetchedFile, Source, SourceInfo, SourceUnavailable
 from forge_worker.sources.registry import ALL_SOURCES, choose
-
-
-def _hash(obj: Any) -> str:
-    return hashlib.sha256(json.dumps(obj, sort_keys=True, default=str).encode()).hexdigest()
-
-
-def _write_json(path: Path, obj: Any) -> None:
-    path.write_text(json.dumps(obj, indent=2, sort_keys=True), encoding="utf-8")
-
-
-def stage_is_fresh(workdir: Path, stage: str, inputs_hash: str, outputs: list[str]) -> bool:
-    """True if this stage already ran with the same inputs and its files are still there."""
-    marker = workdir / f"{stage}.stage.json"
-    if not marker.is_file():
-        return False
-    data = json.loads(marker.read_text(encoding="utf-8"))
-    return data.get("inputs") == inputs_hash and all((workdir / o).is_file() for o in outputs)
-
-
-def mark_stage(workdir: Path, stage: str, inputs_hash: str, outputs: list[str]) -> None:
-    _write_json(workdir / f"{stage}.stage.json", {"stage": stage, "inputs": inputs_hash, "outputs": outputs})
-
-
-def selection_from_params(params: dict[str, Any]) -> Selection:
-    return build_selection(SelectionRequest.model_validate(params["selection"]))
+from forge_worker.stages import world
+from forge_worker.stages.common import hash_of, mark_stage, selection_from_params, stage_is_fresh, write_json
 
 
 # -- 01 select -----------------------------------------------------------------
 def run_select(ctx: StageContext) -> None:
     outputs = ["selection.geojson", "georef.json", "build.json"]
-    inputs = _hash({"selection": ctx.params.get("selection"), "name": ctx.params.get("name")})
+    inputs = hash_of({"selection": ctx.params.get("selection"), "name": ctx.params.get("name")})
     if stage_is_fresh(ctx.workdir, "01_select", inputs, outputs):
         ctx.log("Selection unchanged, reusing it")
         ctx.report(1.0, "Selection ready")
@@ -59,9 +39,9 @@ def run_select(ctx: StageContext) -> None:
     if problems:
         raise SelectionError(" ".join(problems))
     name = str(ctx.params.get("name") or "My map")
-    _write_json(ctx.workdir / "selection.geojson", sel.to_geojson())
+    write_json(ctx.workdir / "selection.geojson", sel.to_geojson())
     sel.georef.write(ctx.workdir / "georef.json")
-    _write_json(
+    write_json(
         ctx.workdir / "build.json",
         {
             "name": name,
@@ -118,7 +98,7 @@ def _file_entry(f: FetchedFile, cache_root: Path) -> dict[str, Any]:
 
 def run_fetch(ctx: StageContext) -> None:
     sel_path = ctx.workdir / "selection.geojson"
-    inputs = _hash(
+    inputs = hash_of(
         {"selection": sel_path.read_text(encoding="utf-8"), "sources": [s.info.id for s in ALL_SOURCES]}
     )
     if stage_is_fresh(ctx.workdir, "02_fetch", inputs, ["fetch_manifest.json"]):
@@ -158,7 +138,7 @@ def run_fetch(ctx: StageContext) -> None:
             "files": sorted((_file_entry(f, ctx.env.cache.root) for f in files), key=lambda e: e["key"]),
         }
         ctx.log(f"{layer}: {len(files)} files from {src.info.name}")
-    _write_json(ctx.workdir / "fetch_manifest.json", {"version": 1, "layers": layers})
+    write_json(ctx.workdir / "fetch_manifest.json", {"version": 1, "layers": layers})
     (ctx.workdir / "CREDITS.txt").write_text(
         licences.credits_text(used, datetime.now(UTC).year), encoding="utf-8"
     )
@@ -174,6 +154,10 @@ BUILD = register(
         stages=(
             Stage(id="select", label="Check selection", run=run_select),
             Stage(id="fetch", label="Download data", run=run_fetch),
+            Stage(id="terrain", label="Build terrain", run=world.run_terrain),
+            Stage(id="roads", label="Build roads", run=world.run_roads),
+            Stage(id="scene", label="Build 3D model", run=world.run_scene),
+            Stage(id="check", label="Check drivability", run=world.run_check),
         ),
     )
 )
