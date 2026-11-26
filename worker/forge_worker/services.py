@@ -20,6 +20,8 @@ RATE_LIMITS = {
     "nominatim.openstreetmap.org": 1.1,  # usage policy: at most 1 request per second
     "router.project-osrm.org": 1.1,
     "overpass-api.de": 0.5,
+    "overpass.private.coffee": 0.5,
+    "overpass.kumi.systems": 0.5,
 }
 
 LonLat = tuple[float, float]

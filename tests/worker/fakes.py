@@ -189,6 +189,7 @@ class FakeHttp:
         self.has_roads = True
         self.noisy_lidar = True
         self.offline_hosts: set[str] = set()
+        self.busy_hosts: set[str] = set()  # answer "429 Too Many Requests"
         self.scene_path = scene_path
 
     def _check(self, url: str) -> None:
@@ -196,6 +197,9 @@ class FakeHttp:
         for host in self.offline_hosts:
             if host in url:
                 raise HttpError(url, None, "offline")
+        for host in self.busy_hosts:
+            if host in url:
+                raise HttpError(url, 429, "Too Many Requests")
 
     def request(self, method: str, url: str, **kwargs: Any) -> FakeResponse:
         self._check(url)

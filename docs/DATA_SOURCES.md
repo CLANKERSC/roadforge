@@ -29,3 +29,9 @@ Overture / Microsoft building footprints, Mapillary / KartaView / Panoramax (str
 | Fallback map display | tile.openstreetmap.org | OSM tile usage policy, light use |
 | Place search | Nominatim | max 1 request/s |
 | Following roads between clicks | OSRM public demo server | light use; result is OSM geometry (ODbL) |
+
+### Overpass servers
+
+Map data is asked from `overpass-api.de` first, then from the public mirrors
+`overpass.private.coffee` and `overpass.kumi.systems` when the main server is busy. All three
+serve the same OpenStreetMap data under the same licence, free and without an account.

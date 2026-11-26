@@ -88,6 +88,10 @@ export class WorkerClient {
   fileJson<T>(jobId: string, name: string) {
     return this.req<T>(`/jobs/${jobId}/files/${name}`);
   }
+  /** Copy the finished mod ZIP into BeamNG's mods folder on this computer. */
+  installBeamng(jobId: string) {
+    return this.req<{ installed_to: string }>(`/jobs/${jobId}/install/beamng`, { method: "POST" });
+  }
   cancel(jobId: string) {
     return this.req<Job>(`/jobs/${jobId}/cancel`, { method: "POST" });
   }

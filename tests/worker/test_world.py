@@ -298,7 +298,7 @@ def files(db_path: Path, job: dict[str, Any]) -> Path:
 def test_build_makes_a_drivable_scene_from_lidar(client: TestClient, db_path: Path) -> None:
     job = build(client, PRAGUE_AREA)
     assert job["state"] == "done", job["message"]
-    assert job["completed_stages"] == ["select", "fetch", "terrain", "roads", "scene", "check"]
+    assert job["completed_stages"] == ["select", "fetch", "terrain", "roads", "scene", "check", "export"]
     assert "all checks passed" in job["message"]
     work = files(db_path, job)
     report = json.loads((work / "drivability.json").read_text(encoding="utf-8"))

@@ -1,5 +1,28 @@
 # Changelog
 
+## M4 – BeamNG.drive export (2026-11-26), version 0.3.0
+
+Built ahead of M3 (Assetto Corsa) because BeamNG was asked for first.
+
+- New last build stage: 07 export. With BeamNG.drive ticked, the build writes a ready mod,
+  `export/<name>.zip`: terrain (`.ter`), the drivable road meshes with collision, invisible
+  roads for AI traffic and the map, sky, a spawn point on the road, a preview picture, and
+  credits for the data sources.
+- App: **Install to BeamNG** on a finished build copies the mod into BeamNG's mods folder.
+  BeamNG.drive is now the game ticked by default.
+- Terrains larger than BeamNG allows (8192 x 8192 cells) are made coarser automatically.
+- The same build always gives a byte-identical ZIP.
+- Windows: the job list, download cache and builds now live in `%LOCALAPPDATA%\RoadForgeData`
+  instead of the program's own folder. Existing data is moved over on first start.
+- Busy OpenStreetMap server ("429 Too Many Requests", found by a real 60 km² build): the
+  download now moves on to two mirror servers and, when all are busy, waits and tries again
+  (up to about 2.5 minutes) before failing. A failed build says to press Rebuild; everything
+  already downloaded is kept and not fetched again.
+- Not verified in the real game yet. What is confirmed and what is assumed about BeamNG's files
+  is in [docs/FORMAT_NOTES_BEAMNG.md](docs/FORMAT_NOTES_BEAMNG.md).
+- Known limits: plain colours instead of textures, no satellite photo on the ground, no
+  buildings or trees, tunnels are open cuttings. Assetto Corsa export is not built yet.
+
 ## M2 – Terrain + roads (2026-11-26), version 0.2.0
 
 - New build stages after the downloads: 03 terrain (`dtm.tif`), 04 roads (`roads.json`,

@@ -18,6 +18,14 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 FAST = {"steps": 4, "step_seconds": 0.01}
 
 
+@pytest.fixture(autouse=True)
+def no_waiting(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never sit out the real pauses between tries on busy map servers."""
+    from forge_worker.sources import osm
+
+    monkeypatch.setattr(osm, "ROUND_WAITS", (0, 0))
+
+
 @pytest.fixture
 def db_path(tmp_path: Path) -> Path:
     return tmp_path / "data"

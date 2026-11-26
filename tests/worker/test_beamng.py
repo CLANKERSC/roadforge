@@ -1,0 +1,241 @@
+"""BeamNG export: the terrain file, the level folder and the mod ZIP."""
+
+from __future__ import annotations
+
+import io
+import json
+import xml.etree.ElementTree as ET
+import zipfile
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pytest
+from fastapi.testclient import TestClient
+
+from forge_worker.exporters.beamng.level import heading_matrix, shrink_for_beamng
+from forge_worker.exporters.beamng.ter import TerFile, pack_heights, read_ter, unpack_heights, write_ter
+from forge_worker.stages.export import beamng_mods_dir
+from forge_worker.terrain import Dtm
+
+from .conftest import AUTH
+from .test_build import PRAGUE_AREA, build
+
+AC_ONLY = {**PRAGUE_AREA, "games": ["ac"]}
+NS = {"c": "http://www.collada.org/2005/11/COLLADASchema"}
+
+
+def test_ter_file_round_trip(tmp_path: Path) -> None:
+    rng = np.random.default_rng(3)
+    ter = TerFile(
+        size=64,
+        heights=rng.integers(0, 65536, (64, 64)).astype(np.uint16),
+        layers=rng.integers(0, 2, (64, 64)).astype(np.uint8),
+        materials=["rf_grass", "rf_rock"],
+    )
+    write_ter(tmp_path / "t.ter", ter)
+    raw = (tmp_path / "t.ter").read_bytes()
+    assert raw[0] == 9 and int.from_bytes(raw[1:5], "little") == 64
+    assert len(raw) == 5 + 64 * 64 * 3 + 4 + (1 + 8) + (1 + 7)
+    back = read_ter(tmp_path / "t.ter")
+    assert back.size == 64 and back.materials == ter.materials
+    assert np.array_equal(back.heights, ter.heights) and np.array_equal(back.layers, ter.layers)
+    with pytest.raises(ValueError, match="power-of-two"):
+        write_ter(tmp_path / "bad.ter", TerFile(48, ter.heights[:48, :48], ter.layers[:48, :48], ["a"]))
+
+
+def test_heights_are_packed_south_first_and_accurate() -> None:
+    rows, cols = 300, 500
+    ys = 1000.0 - (np.arange(rows) + 0.5) * 2.0  # row 0 = north
+    xs = -400.0 + (np.arange(cols) + 0.5) * 2.0
+    z = (250.0 + 0.1 * xs[None, :] + 0.2 * ys[:, None]).astype(np.float32)
+    grid = pack_heights(z, west_x=-400.0, north_y=1000.0, res=2.0, material="rf_grass")
+    assert grid.ter.size == 512 and grid.square_size == 2.0
+    assert grid.position[:2] == (-399.0, 401.0)  # the south-west sample
+    seen = unpack_heights(grid)
+    assert abs(seen[:rows, :cols] - z[::-1]).max() < 0.01  # centimetre accuracy after 16-bit packing
+    # sample (0, 0) is the south-west corner; x grows with the column, y with the row
+    assert abs(seen[0, 0] - (250.0 + 0.1 * -399.0 + 0.2 * 401.0)) < 0.01
+    assert abs(seen[10, 20] - (250.0 + 0.1 * (-399.0 + 40) + 0.2 * (401.0 + 20))) < 0.01
+    assert np.allclose(seen[rows:, :cols], seen[rows - 1, :cols])  # padding repeats the edge: no cliff
+
+
+def test_oversized_terrain_is_halved_and_stays_under_the_roads() -> None:
+    z = np.random.default_rng(1).uniform(100, 110, (8200, 16)).astype(np.float32)
+    small, res = shrink_for_beamng(Dtm(z=z, west=0.0, north=0.0, res=2.0, proj4=""))
+    assert small.shape == (4100, 8) and res == 4.0
+    assert small[0, 0] == z[:2, :2].min()
+
+
+def test_spawn_heading_matrix() -> None:
+    assert heading_matrix(0) == [1, 0, 0, 0, 1, 0, 0, 0, 1]
+    east = heading_matrix(90)
+    assert east[:2] == [0, -1] and east[3:5] == [1, 0]
+
+
+def mod_zip(db_path: Path, job: dict[str, Any]) -> zipfile.ZipFile:
+    work = db_path / "builds" / str(job["id"])
+    export = json.loads((work / "export.json").read_text(encoding="utf-8"))
+    return zipfile.ZipFile(work / export["games"]["beamng"]["zip"])
+
+
+def read_lines(zf: zipfile.ZipFile, name: str) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in zf.read(name).decode("utf-8").splitlines()]
+
+
+def test_build_writes_a_complete_beamng_mod(client: TestClient, db_path: Path) -> None:
+    job = build(client, PRAGUE_AREA, "Praha Test")
+    assert job["state"] == "done", job["message"]
+    assert job["completed_stages"][-1] == "export" and job["message"].endswith("BeamNG mod ready")
+    zf = mod_zip(db_path, job)
+    names = set(zf.namelist())
+    root = "levels/praha_test/"
+    assert all(n.startswith(root) for n in names)  # the mod's only top folder is levels/<id>/
+    for needed in ["info.json", "preview.png", "theTerrain.ter", "theTerrain.terrain.json", "CREDITS.txt",
+                   "main/items.level.json", "main/MissionGroup/items.level.json",
+                   "main/MissionGroup/Roads/items.level.json",
+                   "main/MissionGroup/RoadMeshes/items.level.json",
+                   "art/terrains/main.materials.json", "art/shapes/roads/main.materials.json",
+                   "art/road/main.materials.json"]:  # fmt: skip
+        assert root + needed in names, needed
+
+    # scene objects: one JSON object per line, every object has a class, a name and a known parent
+    assert read_lines(zf, root + "main/items.level.json") == [
+        {
+            "class": "SimGroup",
+            "name": "MissionGroup",
+            "persistentId": read_lines(zf, root + "main/items.level.json")[0]["persistentId"],
+        }
+    ]
+    top = read_lines(zf, root + "main/MissionGroup/items.level.json")
+    by_class = {o["class"]: o for o in top}
+    assert {"LevelInfo", "TimeOfDay", "ScatterSky", "TerrainBlock", "SpawnSphere", "SimGroup"} <= set(
+        by_class
+    )
+    assert all(o["__parent"] == "MissionGroup" for o in top)
+    ids = [o["persistentId"] for o in top]
+    assert len(set(ids)) == len(ids)
+
+    # terrain: the file BeamNG reads matches the object that places it
+    info = json.loads(zf.read(root + "info.json"))
+    terrain = by_class["TerrainBlock"]
+    assert terrain["terrainFile"] == "/levels/praha_test/theTerrain.ter"
+    (db_path / "t.ter").write_bytes(zf.read(root + "theTerrain.ter"))
+    ter = read_ter(db_path / "t.ter")
+    assert ter.size == 1024 and terrain["squareSize"] == 2.0 and ter.materials == ["rf_grass"]
+    assert info["size"] == [2048, 2048]
+    meta = json.loads(zf.read(root + "theTerrain.terrain.json"))
+    assert meta["size"] == 1024 and meta["heightMapSize"] == 1024 * 1024 and meta["materials"] == ["rf_grass"]
+    terrain_mats = json.loads(zf.read(root + "art/terrains/main.materials.json"))
+    grass = next(m for m in terrain_mats.values() if m["class"] == "TerrainMaterial")
+    assert grass["internalName"] == "rf_grass" and grass["groundmodelName"] == "GRASS"
+    assert terrain["materialTextureSet"] in terrain_mats
+    for key, value in grass.items():  # every texture the material names is really in the ZIP
+        if key.endswith("Tex"):
+            assert value.lstrip("/") in names, value
+
+    # spawn: named in info.json, sits on a road, just above the terrain
+    spawn = by_class["SpawnSphere"]
+    assert info["defaultSpawnPointName"] == spawn["name"] == info["spawnPoints"][0]["objectname"]
+    x, y, z = spawn["position"]
+    col = round((x - terrain["position"][0]) / 2.0)
+    row = round((y - terrain["position"][1]) / 2.0)
+    ground = ter.heights[row, col] * terrain["maxHeight"] / 65535.0 + terrain["position"][2]
+    assert 0.3 < z - ground < 1.5
+
+    # road meshes: valid COLLADA, Z-up, every material defined, files referenced exist
+    statics = read_lines(zf, root + "main/MissionGroup/RoadMeshes/items.level.json")
+    road_mats = json.loads(zf.read(root + "art/shapes/roads/main.materials.json"))
+    assert (
+        road_mats["rf_asphalt"]["groundType"] == "ASPHALT"
+        and road_mats["rf_asphalt"]["mapTo"] == "rf_asphalt"
+    )
+    triangles = 0
+    for static in statics:
+        assert static["class"] == "TSStatic" and static["collisionType"] == "Visible Mesh Final"
+        dae = ET.parse(io.BytesIO(zf.read(static["shapeName"].lstrip("/")))).getroot()
+        assert dae.find("c:asset/c:up_axis", NS).text == "Z_UP"  # type: ignore[union-attr]
+        for tri in dae.iterfind(".//c:triangles", NS):
+            assert tri.get("material") in road_mats
+            count = int(tri.get("count", "0"))
+            assert len(tri.find("c:p", NS).text.split()) == count * 9  # type: ignore[union-attr]
+            triangles += count
+    assert triangles > 50_000
+
+    # AI roads: one per stretch, ends shared at junctions so the navigation graph is connected
+    roads = read_lines(zf, root + "main/MissionGroup/Roads/items.level.json")
+    scene = json.loads((db_path / "builds" / job["id"] / "scene.json").read_text(encoding="utf-8"))
+    assert len(roads) == len(scene["road_graph"]["edges"])
+    ends: dict[tuple[float, float, float], int] = {}
+    for road in roads:
+        assert road["class"] == "DecalRoad" and road["__parent"] == "Roads" and len(road["nodes"]) >= 2
+        assert all(len(n) == 4 and n[3] >= 2.5 for n in road["nodes"])
+        assert road["lanesLeft"] + road["lanesRight"] >= 1 and road["overObjects"] is True
+        for node in (road["nodes"][0], road["nodes"][-1]):
+            ends[tuple(node[:3])] = ends.get(tuple(node[:3]), 0) + 1
+    assert sum(1 for n in ends.values() if n >= 3) >= 10  # real junctions share one exact point
+    assert road["material"] in json.loads(zf.read(root + "art/road/main.materials.json"))
+    credits = zf.read(root + "CREDITS.txt").decode("utf-8")
+    assert "OpenStreetMap contributors" in credits and "ČÚZK" in credits
+
+
+def test_beamng_mod_is_identical_when_built_twice(client: TestClient, db_path: Path) -> None:
+    first, second = build(client, PRAGUE_AREA, "Twice"), build(client, PRAGUE_AREA, "Twice")
+    a = (db_path / "builds" / first["id"] / "export" / "twice.zip").read_bytes()
+    b = (db_path / "builds" / second["id"] / "export" / "twice.zip").read_bytes()
+    assert a == b
+
+
+def test_install_copies_the_zip_into_the_mods_folder(
+    client: TestClient, db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job = build(client, PRAGUE_AREA, "Install me")
+    mods = tmp_path / "BeamNG" / "current" / "mods"
+    monkeypatch.setenv("FORGE_BEAMNG_MODS", str(mods))
+    resp = client.post(f"/jobs/{job['id']}/install/beamng", headers=AUTH)
+    assert resp.status_code == 200, resp.text
+    target = Path(resp.json()["installed_to"])
+    assert target == mods / "install_me.zip" and zipfile.is_zipfile(target)
+    monkeypatch.delenv("FORGE_BEAMNG_MODS")
+    monkeypatch.setattr("sys.platform", "linux")
+    missing = client.post(f"/jobs/{job['id']}/install/beamng", headers=AUTH)
+    assert missing.status_code == 409 and "install_me.zip" in missing.json()["detail"]
+
+
+def test_build_without_beamng_writes_no_mod(client: TestClient, db_path: Path) -> None:
+    job = build(client, AC_ONLY, "Only AC")
+    assert job["state"] == "done" and "BeamNG" not in job["message"]
+    assert not list((db_path / "builds" / job["id"] / "export").glob("*.zip"))
+    resp = client.post(f"/jobs/{job['id']}/install/beamng", headers=AUTH)
+    assert resp.status_code == 409 and "Tick BeamNG" in resp.json()["detail"]
+
+
+def test_mods_folder_is_found_on_windows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FORGE_BEAMNG_MODS", raising=False)
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert beamng_mods_dir() is None  # BeamNG never ran on this computer
+    base = tmp_path / "BeamNG" / "BeamNG.drive"
+    (base / "0.33").mkdir(parents=True)
+    (base / "0.9").mkdir()
+    assert beamng_mods_dir() == base / "0.33" / "mods"  # newest version folder, not alphabetical
+    (base / "current").mkdir()
+    assert beamng_mods_dir() == base / "current" / "mods"
+
+
+def test_windows_data_moves_out_of_the_install_folder(tmp_path: Path) -> None:
+    from forge_worker.paths import move_old_data
+
+    old, new = tmp_path / "RoadForge", tmp_path / "RoadForgeData"
+    (old / "builds" / "j1").mkdir(parents=True)
+    (old / "builds" / "j1" / "scene.json").write_text("{}")
+    (old / "jobs.sqlite3").write_text("db")
+    (old / "roadforge.exe").write_text("program")
+    new.mkdir()
+    move_old_data(old, new)
+    assert (new / "jobs.sqlite3").read_text() == "db"
+    assert (new / "builds" / "j1" / "scene.json").is_file()
+    assert sorted(p.name for p in old.iterdir()) == ["roadforge.exe"]  # the program stays put
+    (old / "jobs.sqlite3").write_text("stale")
+    move_old_data(old, new)  # a second run never overwrites the new data
+    assert (new / "jobs.sqlite3").read_text() == "db"

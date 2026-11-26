@@ -4,14 +4,60 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from pathlib import Path
+from typing import Any
 
 from shapely.geometry import box
 
+from forge_worker.http import RETRY_STATUS, HttpError
 from forge_worker.selection import Selection
 from forge_worker.sources.base import FetchContext, FetchedFile, Source, SourceInfo, fetch_parallel
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Public Overpass servers, tried in this order. The main one is often full ("429 Too Many
+# Requests"); the mirrors serve the same OpenStreetMap data, free and without an account.
+OVERPASS_URLS = [
+    OVERPASS_URL,
+    "https://overpass.private.coffee/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+]
+# Seconds to wait before each round over all servers. A busy server usually frees up in a minute.
+ROUND_WAITS: tuple[float, ...] = (0, 15, 45, 90)
+
+
+def query_overpass(ctx: FetchContext, query: str) -> dict[str, Any]:
+    """Ask each server in turn; when all are busy, wait and go round again before giving up."""
+    last: Exception = RuntimeError("no Overpass server was tried")
+    for round_no, wait in enumerate(ROUND_WAITS):
+        if wait:
+            ctx.log(f"All map servers are busy, trying again in {wait:.0f} s", "warning")
+            for _ in range(int(wait)):
+                ctx.check_cancelled()
+                time.sleep(1)
+        for url in OVERPASS_URLS:
+            ctx.check_cancelled()
+            try:
+                data = ctx.http.post_json(url, data={"data": query}, timeout=(10, 240))
+            except HttpError as exc:
+                if exc.status is not None and exc.status not in RETRY_STATUS:
+                    raise  # our own mistake (bad query): another server would say the same
+                last = exc
+            except ValueError as exc:  # a full server sometimes answers with an HTML page
+                last = RuntimeError(f"{url.split('/')[2]}: answer was not map data ({type(exc).__name__})")
+            else:
+                if isinstance(data, dict) and "elements" in data:
+                    if round_no or url != OVERPASS_URL:
+                        ctx.log(f"Map data came from {url.split('/')[2]} (the main server was busy)", "info")
+                    return data
+                last = RuntimeError(f"{url.split('/')[2]}: answer had no map data")
+    raise RuntimeError(
+        f"The OpenStreetMap servers are busy or out of reach ({len(OVERPASS_URLS)} servers, "
+        f"{len(ROUND_WAITS)} tries each). Last answer: {last}. Press Rebuild in a few minutes: "
+        "everything already downloaded is kept."
+    ) from last
+
+
 CELL_DEG = 0.1  # fixed grid so overlapping builds share cached cells
 
 _QUERY = """[out:json][timeout:180][maxsize:536870912];
@@ -84,9 +130,7 @@ class OsmOverpass(Source):
 
             def download(tmp: Path) -> None:
                 query = _QUERY.format(b=f"{s},{w},{n},{e}")
-                data = ctx.http.post_json(OVERPASS_URL, data={"data": query}, timeout=(10, 240))
-                if "elements" not in data:
-                    raise RuntimeError("Overpass returned no 'elements'")
+                data = query_overpass(ctx, query)
                 tmp.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
 
             cached = ctx.cache.get_or_fetch(self.info.id, f"cell_{cell[0]}_{cell[1]}", ".json", download)
