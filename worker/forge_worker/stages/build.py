@@ -6,6 +6,7 @@
 04 roads   -> roads.json, dtm_conformed.tif
 05 scene   -> scene.json, preview.glb
 06 check   -> drivability.json
+07 export  -> export/<level id>.zip (BeamNG mod), export.json   (stages/export.py)
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from forge_worker.pipeline import Pipeline, Stage, StageContext, register
 from forge_worker.selection import Selection, SelectionError
 from forge_worker.sources.base import FetchContext, FetchedFile, Source, SourceInfo, SourceUnavailable
 from forge_worker.sources.registry import ALL_SOURCES, choose
-from forge_worker.stages import world
+from forge_worker.stages import export, world
 from forge_worker.stages.common import hash_of, mark_stage, selection_from_params, stage_is_fresh, write_json
 
 
@@ -158,6 +159,7 @@ BUILD = register(
             Stage(id="roads", label="Build roads", run=world.run_roads),
             Stage(id="scene", label="Build 3D model", run=world.run_scene),
             Stage(id="check", label="Check drivability", run=world.run_check),
+            Stage(id="export", label="Write game files", run=export.run_export),
         ),
     )
 )

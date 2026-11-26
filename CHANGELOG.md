@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.3.3 – Trees (2026-11-26)
+
+- Forests, scrub, orchards, tree rows and single trees from OpenStreetMap are planted in the
+  BeamNG map through the game's own forest system, using the tree models every BeamNG install
+  already has (beech, oak, aspen). Nothing grows on a road, within 3 m of its edge or against
+  a building. The same map always gets the same trees. Very large forests are thinned so a
+  map never holds more than about 60,000 plants.
+
+## 0.3.2 – Buildings (2026-11-26)
+
+- Buildings from OpenStreetMap stand in the BeamNG map: real outline and position, real height
+  where the map has it (otherwise a guess by type and size), plastered walls with windows in
+  four colours, pitched tile roofs on house-shaped footprints, flat roofs on halls and blocks.
+  They are solid. A building the map draws on top of a road is left out so the road stays open.
+- Slope limits raised (tertiary 22 %, residential 25 %, track 35 %, motorway 10 %). With the
+  stricter limits a real 20 % village road was flattened and ended on a 4 m bank; in the real
+  Turkovice data 92 % of all road points now lie within 0.5 m of the measured ground.
+- Not yet: trees, street-level detail (real facade colours, signs, fences).
+
+## 0.3.1 – First fixes from the real game (2026-11-26)
+
+The 0.3.0 mod was loaded in BeamNG.drive 0.40.6: it appears in Freeroam, loads, and the car
+spawns on the road and drives. These fixes come from that test.
+
+- Rainbow noise on the ground: the roughness, ambient-occlusion and height maps were RGB; the
+  game expects 8-bit grey, as in its own levels. All ground textures now follow the stock
+  formats and sizes.
+- The aerial (or satellite) photo of the place is laid over the ground, so fields, yards and
+  forests show where they really are. Close up it is mixed with a grass texture.
+- Roads have real surface textures (asphalt, concrete, cobbles, gravel), made by the app from
+  noise: no photo or game asset is copied. The banks beside the road are grass.
+- Lane lines on concrete roads too, lane dividers on multi-lane one-way roads, and motorway
+  carriageways get their paved shoulders (2 lanes: 10 m instead of 7 m) when the map gives no width.
+- A download can no longer hang for ever: every request has a time limit for the whole answer
+  (5 minutes for map data). Cancel now works while a download is stuck.
+- The drawn selection could vanish from the map when the base map changed its style: fixed.
+- The panel text no longer says game maps come later.
+
+## M4 – BeamNG.drive export (2026-11-26), version 0.3.0
+
+Built ahead of M3 (Assetto Corsa) because BeamNG was asked for first.
+
+- New last build stage: 07 export. With BeamNG.drive ticked, the build writes a ready mod,
+  `export/<name>.zip`: terrain (`.ter`), the drivable road meshes with collision, invisible
+  roads for AI traffic and the map, sky, a spawn point on the road, a preview picture, and
+  credits for the data sources.
+- App: **Install to BeamNG** on a finished build copies the mod into BeamNG's mods folder.
+  BeamNG.drive is now the game ticked by default.
+- Terrains larger than BeamNG allows (8192 x 8192 cells) are made coarser automatically.
+- The same build always gives a byte-identical ZIP.
+- Windows: the job list, download cache and builds now live in `%LOCALAPPDATA%\RoadForgeData`
+  instead of the program's own folder. Existing data is moved over on first start.
+- Busy OpenStreetMap server ("429 Too Many Requests", found by a real 60 km² build): the
+  download now moves on to two mirror servers and, when all are busy, waits and tries again
+  (up to about 2.5 minutes) before failing. A failed build says to press Rebuild; everything
+  already downloaded is kept and not fetched again.
+- Not verified in the real game yet. What is confirmed and what is assumed about BeamNG's files
+  is in [docs/FORMAT_NOTES_BEAMNG.md](docs/FORMAT_NOTES_BEAMNG.md).
+- Known limits: plain colours instead of textures, no satellite photo on the ground, no
+  buildings or trees, tunnels are open cuttings. Assetto Corsa export is not built yet.
+
 ## M2 – Terrain + roads (2026-11-26), version 0.2.0
 
 - New build stages after the downloads: 03 terrain (`dtm.tif`), 04 roads (`roads.json`,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -105,10 +106,20 @@ def test_failed_download_fails_the_job_with_a_clear_message(client: TestClient, 
     fake_http.offline_hosts = {"overpass"}
     job = build(client, PRAGUE_AREA)
     assert job["state"] == "failed"
-    assert "overpass-api.de" in job["message"]
+    assert "OpenStreetMap servers are busy or out of reach" in job["message"]
+    assert "Press Rebuild" in job["message"]
     fake_http.offline_hosts = set()
     again = client.post(f"/jobs/{job['id']}/rebuild", headers=AUTH).json()
     assert wait_for(client, again["id"], {"done", "failed"}, timeout=30)["state"] == "done"
+
+
+def test_busy_map_server_falls_back_to_a_mirror(client: TestClient, fake_http: FakeHttp) -> None:
+    fake_http.busy_hosts = {"overpass-api.de"}  # the main server answers "429 Too Many Requests"
+    job = build(client, PRAGUE_AREA)
+    assert job["state"] == "done", job["message"]
+    logs = client.get(f"/jobs/{job['id']}/logs", headers=AUTH).json()
+    assert any("overpass.private.coffee" in entry["message"] for entry in logs)
+    assert any("overpass.private.coffee" in url for url in fake_http.calls)
 
 
 def test_selection_over_limit_fails_in_first_stage(client: TestClient) -> None:
@@ -130,3 +141,16 @@ def test_search_and_route(client: TestClient, fake_http: FakeHttp) -> None:
     assert len(offline["coords"]) == 2
     fake_http.offline_hosts = {"nominatim"}
     assert client.get("/search?q=brno", headers=AUTH).status_code == 502
+
+
+def test_cancel_works_while_a_download_hangs(client: TestClient, fake_http: FakeHttp) -> None:
+    fake_http.hang_hosts = {"overpass"}  # the map server accepts the request and then goes silent
+    body = {"kind": "build", "name": "Hang", "params": {"selection": PRAGUE_AREA, "name": "Hang"}}
+    job = client.post("/jobs", json=body, headers=AUTH).json()
+    wait_for(client, job["id"], {"running"}, timeout=10)
+    time.sleep(1.0)
+    client.post(f"/jobs/{job['id']}/cancel", headers=AUTH)
+    try:
+        assert wait_for(client, job["id"], {"cancelled", "failed", "done"}, timeout=5)["state"] == "cancelled"
+    finally:
+        fake_http.release.set()

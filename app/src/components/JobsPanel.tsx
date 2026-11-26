@@ -17,6 +17,7 @@ interface Props {
   onRebuild: (id: string) => void;
   onShowLogs: (id: string) => void;
   onPreview: (job: Job) => void;
+  onInstallBeamng: (id: string) => Promise<string>;
 }
 
 function useNow(): number {
@@ -28,7 +29,7 @@ function useNow(): number {
   return now;
 }
 
-export function JobsPanel({ jobs, logs, onCancel, onRebuild, onShowLogs, onPreview }: Props) {
+export function JobsPanel({ jobs, logs, onCancel, onRebuild, onShowLogs, onPreview, onInstallBeamng }: Props) {
   const [openLogs, setOpenLogs] = useState<string | null>(null);
   const now = useNow();
 
@@ -52,6 +53,7 @@ export function JobsPanel({ jobs, logs, onCancel, onRebuild, onShowLogs, onPrevi
             onCancel={() => onCancel(job.id)}
             onRebuild={() => onRebuild(job.id)}
             onPreview={() => onPreview(job)}
+            onInstallBeamng={() => onInstallBeamng(job.id)}
           />
         ))}
       </ul>
@@ -68,8 +70,18 @@ function JobCard(props: {
   onCancel: () => void;
   onRebuild: () => void;
   onPreview: () => void;
+  onInstallBeamng: () => Promise<string>;
 }) {
   const { job, now, logs } = props;
+  const [install, setInstall] = useState<{ ok: boolean; text: string } | null>(null);
+  const hasBeamng = job.state === "done" && job.completed_stages.includes("export") && wantsBeamng(job);
+  const installBeamng = () => {
+    setInstall({ ok: true, text: "Copying…" });
+    props
+      .onInstallBeamng()
+      .then((where) => setInstall({ ok: true, text: `Installed. Start BeamNG and pick it in Freeroam. (${where})` }))
+      .catch((err) => setInstall({ ok: false, text: err instanceof Error ? err.message : String(err) }));
+  };
   const eta = etaSeconds(job, now);
   const active = job.state === "queued" || job.state === "running";
   const pct = Math.round(job.progress * 100);
@@ -114,11 +126,17 @@ function JobCard(props: {
             View in 3D
           </button>
         )}
+        {hasBeamng && <button onClick={installBeamng}>Install to BeamNG</button>}
         {!active && <button onClick={props.onRebuild}>Rebuild</button>}
         <button className="link" onClick={props.onToggleLogs}>
           {props.logsOpen ? "Hide log" : "Show log"}
         </button>
       </div>
+      {install && (
+        <div className={`small install ${install.ok ? "install-ok" : "install-bad"}`} role="status">
+          {install.text}
+        </div>
+      )}
       {props.logsOpen && (
         <pre className="log">
           {logs.length === 0
@@ -130,4 +148,10 @@ function JobCard(props: {
       )}
     </li>
   );
+}
+
+/** Did this build ask for a BeamNG map? */
+export function wantsBeamng(job: Job): boolean {
+  const selection = (job.params as { selection?: { games?: unknown } }).selection;
+  return Array.isArray(selection?.games) && selection.games.includes("beamng");
 }

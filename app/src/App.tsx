@@ -20,7 +20,7 @@ export default function App() {
 
   const [draft, dispatch] = useReducer(draftReducer, emptyDraft);
   const [name, setName] = useState("");
-  const [games, setGames] = useState<Game[]>(["ac"]);
+  const [games, setGames] = useState<Game[]>(["beamng"]);
   const [route, setRoute] = useState<RouteResult | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [planning, setPlanning] = useState(false);
@@ -133,6 +133,13 @@ export default function App() {
   }, [client, selection, name]);
   const cancel = useCallback((id: string) => void client?.cancel(id).catch(console.error), [client]);
   const rebuild = useCallback((id: string) => void client?.rebuild(id).catch(console.error), [client]);
+  const installBeamng = useCallback(
+    async (id: string) => {
+      if (!client) throw new Error("The engine is not running.");
+      return (await client.installBeamng(id)).installed_to;
+    },
+    [client],
+  );
   const showLogs = useCallback(
     (id: string) => {
       client
@@ -182,7 +189,7 @@ export default function App() {
             canBuild={canBuild}
             onBuild={build}
           />
-          <JobsPanel jobs={jobs} logs={state.logs} onCancel={cancel} onRebuild={rebuild} onShowLogs={showLogs} onPreview={setPreview} />
+          <JobsPanel jobs={jobs} logs={state.logs} onCancel={cancel} onRebuild={rebuild} onShowLogs={showLogs} onPreview={setPreview} onInstallBeamng={installBeamng} />
         </aside>
       </main>
       {preview && client && <PreviewPanel job={preview} client={client} onClose={closePreview} />}

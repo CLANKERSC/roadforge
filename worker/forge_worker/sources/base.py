@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Sequence
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar
 
@@ -84,17 +84,20 @@ def fetch_parallel(
     results: dict[int, R] = {}
     if not items:
         return []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(work, item): i for i, item in enumerate(items)}
-        try:
-            for done, fut in enumerate(as_completed(futures), start=1):
-                ctx.check_cancelled()
+    pool = ThreadPoolExecutor(max_workers=workers)
+    futures = {pool.submit(work, item): i for i, item in enumerate(items)}
+    waiting = set(futures)
+    try:
+        while waiting:
+            # look for Cancel twice a second, also while every download is still running
+            finished, waiting = wait(waiting, timeout=0.5, return_when=FIRST_COMPLETED)
+            ctx.check_cancelled()
+            for fut in finished:
                 results[futures[fut]] = fut.result()
-                ctx.report(done / len(items), f"{label}: {done} of {len(items)}")
-        except BaseException:
-            for f in futures:
-                f.cancel()
-            raise
+                ctx.report(len(results) / len(items), f"{label}: {len(results)} of {len(items)}")
+    finally:
+        # never wait here for a download that hangs: it ends on its own time limit
+        pool.shutdown(wait=False, cancel_futures=True)
     return [results[i] for i in range(len(items))]
 
 

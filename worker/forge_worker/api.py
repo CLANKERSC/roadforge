@@ -27,6 +27,7 @@ from forge_worker.planning import make_plan
 from forge_worker.runner import JobRunner
 from forge_worker.selection import SelectionError, SelectionRequest, build_selection
 from forge_worker.services import route_along_roads, search_places
+from forge_worker.stages.export import install_beamng
 from forge_worker.store import JobStore
 
 # Origins of the Tauri webview (Windows/Linux/macOS) and the Vite dev server.
@@ -35,6 +36,7 @@ BUILD_FILES = {
     "preview.glb": "model/gltf-binary",
     "drivability.json": "application/json",
     "scene.json": "application/json",
+    "export.json": "application/json",
 }
 ALLOWED_ORIGINS = [
     "tauri://localhost",
@@ -165,6 +167,18 @@ def create_app(data_dir: Path, token: str, env: WorkerEnv | None = None) -> Fast
         if not path.is_file():
             raise HTTPException(status_code=404, detail="this build has not produced that file yet")
         return FileResponse(path, media_type=BUILD_FILES[name])
+
+    @app.post("/jobs/{job_id}/install/beamng", dependencies=auth)
+    def install_to_beamng(job_id: str) -> dict[str, Any]:
+        """Copy the finished mod ZIP into BeamNG's mods folder on this computer."""
+        _get(job_id)
+        try:
+            target = install_beamng(data_dir / "builds" / job_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"Could not copy the mod: {exc}") from None
+        return {"installed_to": str(target)}
 
     @app.post("/jobs/{job_id}/cancel", dependencies=auth)
     def cancel_job(job_id: str) -> dict[str, Any]:

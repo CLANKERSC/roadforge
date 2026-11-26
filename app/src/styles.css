@@ -136,3 +136,6 @@ button.big { width: 100%; padding: 10px; font-size: 15px; margin-bottom: 6px; }
 .check-bad > span:first-child { color: var(--wait); font-weight: 700; }
 .repairs li::before { content: "• "; color: var(--accent2); }
 .note { color: var(--wait); }
+.install { margin-top: 6px; word-break: break-word; }
+.install-ok { color: var(--ok); }
+.install-bad { color: var(--wait); }

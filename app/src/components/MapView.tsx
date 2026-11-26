@@ -119,18 +119,31 @@ export function MapView({ draft, dispatch, routeCoords, outline, flyTo }: Props)
       doubleClickZoom: false, // double-click finishes a polygon instead
     });
     let fellBack = false;
+    let styleReady = false;
     map.on("error", (e: maplibregl.ErrorEvent) => {
-      // If the vector style can't load (offline, blocked), switch to plain OSM raster once.
-      if (!fellBack && !map.isStyleLoaded()) {
+      // If the vector style itself can't load (offline, blocked), switch to plain OSM raster once.
+      // A single failed tile or icon after the style is up must not throw the whole map away.
+      if (!fellBack && !styleReady) {
         fellBack = true;
         console.warn("Base map style failed, using OSM raster fallback", e.error);
-        map.setStyle(FALLBACK_STYLE);
+        map.setStyle(FALLBACK_STYLE, { diff: false });
       }
     });
+    const drawOurLayers = () => {
+      try {
+        ensureLayers(map);
+        redraw();
+      } catch {
+        // the style is still being put together; the next event tries again
+      }
+    };
     map.on("style.load", () => {
-      ensureLayers(map);
-      redraw();
+      styleReady = true;
+      drawOurLayers();
     });
+    // A style swap can drop our layers without a new "style.load": put them back whenever
+    // the style changes, so the drawn selection can never go missing.
+    map.on("styledata", drawOurLayers);
     map.on("click", (e) => dispatch({ type: "click", point: [e.lngLat.lng, e.lngLat.lat] }));
     map.on("dblclick", () => {
       dispatch({ type: "undo" }); // the second click of the double-click added a duplicate corner

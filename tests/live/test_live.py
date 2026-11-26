@@ -47,6 +47,11 @@ def run_build(
     assert report["ok"], [c for c in report["checks"] if not c["ok"]]
     assert report["summary"]["road_km"] > 0.3
     assert (data_dir / "builds" / job["id"] / "preview.glb").stat().st_size > 50_000
+    # the real place must also come out as a BeamNG mod
+    export = json.loads((data_dir / "builds" / job["id"] / "export.json").read_text(encoding="utf-8"))
+    mod = data_dir / "builds" / job["id"] / export["games"]["beamng"]["zip"]
+    print("BeamNG mod:", json.dumps(export["games"]["beamng"]))
+    assert mod.stat().st_size > 100_000
     manifest = json.loads(
         (data_dir / "builds" / job["id"] / "fetch_manifest.json").read_text(encoding="utf-8")
     )

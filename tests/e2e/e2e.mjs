@@ -2,7 +2,7 @@
 // Run from the repo root:  node tests/e2e/e2e.mjs
 // Env: PYTHON (python with the worker installed), PW_CHROMIUM (optional browser path).
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -18,8 +18,9 @@ const python = process.env.PYTHON || "python";
 const dataDir = mkdtempSync(path.join(tmpdir(), "forge-e2e-"));
 writeFileSync(path.join(root, "app/.env.local"), "VITE_WORKER_URL=http://127.0.0.1:8765\nVITE_WORKER_TOKEN=e2e-token\n");
 
+const modsDir = path.join(dataDir, "beamng-mods"); // stands in for BeamNG's own mods folder
 const procs = [
-  spawn(python, ["-m", "tests.e2e.fake_worker", dataDir], { cwd: root, stdio: "inherit" }),
+  spawn(python, ["-m", "tests.e2e.fake_worker", dataDir], { cwd: root, stdio: "inherit", env: { ...process.env, FORGE_BEAMNG_MODS: modsDir } }),
   spawn("npx", ["vite", "--port", "1420", "--strictPort"], { cwd: path.join(root, "app"), stdio: "ignore", shell: process.platform === "win32" }),
 ];
 const stop = () => procs.forEach((p) => p.kill());
@@ -112,6 +113,14 @@ async function main() {
   await page.keyboard.press("Escape");
   await page.locator(".preview").waitFor({ state: "detached" });
   check((await page.getByTestId("readout").count()) === 1, "closing the preview keeps the drawing");
+
+  // 4c. the finished build is a BeamNG mod and one click puts it in the game's mods folder
+  check(log.includes("BeamNG mod"), "build log says the BeamNG mod was written");
+  await page.getByRole("button", { name: "Install to BeamNG" }).first().click();
+  await page.getByText(/Installed\. Start BeamNG/).first().waitFor({ timeout: 30000 });
+  const mods = existsSync(modsDir) ? readdirSync(modsDir) : [];
+  check(mods.length === 1 && mods[0].endsWith(".zip"), `Install to BeamNG copied the mod (${mods.join(", ")})`);
+  await shot("3c-beamng-installed");
 
   // 5. undo and clear
   await page.getByRole("button", { name: "Clear" }).click();

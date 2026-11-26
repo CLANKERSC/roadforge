@@ -26,17 +26,17 @@ XY = NDArray[np.float64]
 
 # class -> (default lanes, lane width m, max grade, AI speed cap km/h)
 ROAD_CLASSES: dict[str, tuple[int, float, float, float]] = {
-    "motorway": (2, 3.5, 0.08, 130),
-    "trunk": (2, 3.5, 0.10, 110),
-    "primary": (2, 3.25, 0.12, 90),
-    "secondary": (2, 3.25, 0.14, 90),
-    "tertiary": (2, 3.0, 0.16, 90),
-    "unclassified": (2, 2.75, 0.20, 70),
-    "residential": (2, 3.0, 0.20, 50),
-    "living_street": (1, 4.0, 0.20, 20),
-    "service": (1, 3.0, 0.22, 30),
-    "track": (1, 2.5, 0.30, 30),
-    "road": (2, 3.0, 0.20, 50),
+    "motorway": (2, 3.5, 0.10, 130),
+    "trunk": (2, 3.5, 0.12, 110),
+    "primary": (2, 3.25, 0.15, 90),
+    "secondary": (2, 3.25, 0.18, 90),
+    "tertiary": (2, 3.0, 0.22, 90),
+    "unclassified": (2, 2.75, 0.25, 70),
+    "residential": (2, 3.0, 0.25, 50),
+    "living_street": (1, 4.0, 0.25, 20),
+    "service": (1, 3.0, 0.28, 30),
+    "track": (1, 2.5, 0.35, 30),
+    "road": (2, 3.0, 0.25, 50),
 }
 SKIP_SERVICE = {"parking_aisle", "driveway", "drive-through"}
 UNPAVED = {
@@ -75,6 +75,10 @@ def _number(text: str | None) -> float | None:
     return float(m.group(1).replace(",", ".")) if m else None
 
 
+# Paved strips beside the lanes of a motorway carriageway, when the map gives no width.
+HARD_SHOULDER, INNER_STRIP = 2.5, 0.5
+
+
 def road_width(tags: dict[str, str], cls: str) -> tuple[float, int, bool]:
     """(width in metres, lanes, True if the width was measured rather than assumed)."""
     default_lanes, lane_w, _, _ = ROAD_CLASSES[cls]
@@ -87,6 +91,8 @@ def road_width(tags: dict[str, str], cls: str) -> tuple[float, int, bool]:
     measured = width is not None and MIN_WIDTH <= width <= MAX_WIDTH
     if not measured:
         width = lanes * lane_w
+        if cls in {"motorway", "trunk"}:
+            width += HARD_SHOULDER + INNER_STRIP  # real motorways have paved strips beside the lanes
         if lanes == 1:
             width = max(width, 3.0)
     assert width is not None

@@ -10,13 +10,15 @@ open data and exports a ready-to-install ZIP for each game.
 
 ## Status
 
-**Milestone M2 – terrain and roads in 3D** (this version). You can search a place anywhere in the
+**Milestone M4 – BeamNG.drive export** (this version). You can search a place anywhere in the
 world, draw an **Area** (box or free shape) or a **Road A to B** with a width on each side, name
-it, pick the game(s) and press **Build it**. The build downloads terrain heights, imagery and
-OpenStreetMap data, then builds the roads and the terrain as a 3D model: real road widths, real
-hills, junctions, bridges and lane markings. Every build ends with an automatic **drivability
-check**, and **View in 3D** shows the result with the list of what was checked and repaired.
-Writing the map into the games' own formats starts in M3. See [CHANGELOG.md](CHANGELOG.md).
+it and press **Build it**. The build downloads terrain heights, imagery and OpenStreetMap data,
+builds the roads and the terrain in 3D (real road widths, real hills, junctions, bridges, lane
+markings), runs an automatic **drivability check**, and writes a **BeamNG.drive mod**.
+**View in 3D** shows the result; **Install to BeamNG** copies the mod into the game, where the
+map appears in Freeroam under the name you gave it. Assetto Corsa export comes next. The ground
+shows the aerial photo of the place and the roads have real surfaces and lane lines; buildings
+and trees stand where the map has them. See [CHANGELOG.md](CHANGELOG.md).
 
 **The quality rule:** roads follow the real world as closely as the data allows, but they always
 come out drivable. Where the map or the height data is wrong or too rough (a bump, a cliff, a

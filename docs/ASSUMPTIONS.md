@@ -57,9 +57,10 @@ Each entry: what we assumed, why, and how to check it.
   2.5 m). One-way streets without a `lanes` tag count as one lane. Widths are clamped to 2.5-30 m.
 - **Left out:** footways, cycleways, paths, steps, `area=yes`, parking aisles, driveways, private
   service roads and tracks.
-- **Slope limits** by type: motorway 8 %, trunk 10 %, primary 12 %, secondary 14 %, tertiary 16 %,
-  residential/unclassified 20 %, service 22 %, track 30 %. Real roads steeper than this are
-  flattened to the limit. To revisit if a famous steep street matters.
+- **Slope limits** by type: motorway 10 %, trunk 12 %, primary 15 %, secondary 18 %, tertiary
+  22 %, residential/unclassified 25 %, service 28 %, track 35 %. Real roads steeper than this are
+  flattened to the limit. Raised in 0.3.2: with the first, stricter limits a real 20 % village
+  road near Turkovice was flattened and ended up on a 4 m bank above the ground.
 - **Kink limit:** slope may change by at most 6 % between two 2 m steps.
 - **Bridges** are straight decks between their two ends (plus an arch when headroom is needed);
   the tunnel flag is kept in the data but tunnels are open cuttings for now.
@@ -75,3 +76,17 @@ Each entry: what we assumed, why, and how to check it.
   `preview.glb` is y-up (glTF convention).
 - **Spawn point:** the start of the chosen road in Road mode; the middle of the longest
   highest-class road in Area mode.
+
+## M4 (BeamNG export)
+
+- Every unverified detail of the BeamNG files is listed in
+  [FORMAT_NOTES_BEAMNG.md](FORMAT_NOTES_BEAMNG.md) under "Assumed". Nothing in the sandbox can
+  run BeamNG, so the first proof is loading a map in the real game.
+- **BeamNG before Assetto Corsa:** the owner asked for BeamNG first, so M4 was built ahead of M3.
+  A build with only Assetto Corsa ticked still runs and says that its export is not built yet.
+- **Level origin** is the selection centre; heights are real metres above sea level.
+- **BeamNG's mods folder** is looked up at `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\mods`
+  (0.36 and newer), then the newest numbered version folder. Not found: the app says where the
+  ZIP is so it can be copied by hand.
+- **App data on Windows** moved from `%LOCALAPPDATA%\RoadForge` (which is also where the
+  installer puts the program) to `%LOCALAPPDATA%\RoadForgeData`. Old data is moved once.
