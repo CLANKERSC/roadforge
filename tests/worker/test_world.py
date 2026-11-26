@@ -217,7 +217,7 @@ def test_steep_hill_is_limited_to_what_the_road_type_allows() -> None:
     _, _, profiles, node_z, _, repairs = junction_world(lambda x, y: 100 + 0.30 * x)  # 30 % straight up
     main = max(profiles, key=lambda p: p.length)
     grade = np.abs(np.diff(main.z) / np.diff(main.s)).max()
-    assert grade <= 0.14 * 1.08 and repairs["grade_limited_points"] > 0
+    assert grade <= 0.18 * 1.08 and repairs["grade_limited_points"] > 0
     for p in profiles:  # every road arrives at its junctions at exactly the junction's height
         assert abs(p.z[0] - node_z[p.edge.a]) < 1e-6 and abs(p.z[-1] - node_z[p.edge.b]) < 1e-6
 

@@ -11,7 +11,10 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 from rasterio.crs import CRS
+from shapely.geometry import LineString, box
+from shapely.geometry.base import BaseGeometry
 
+from forge_worker.buildings import Building, Soup, building_meshes, load_buildings
 from forge_worker.exporters.beamng.level import (
     LevelInputs,
     default_ground_photo,
@@ -21,11 +24,14 @@ from forge_worker.exporters.beamng.level import (
 )
 from forge_worker.imagery import ground_photo
 from forge_worker.pipeline import StageContext
+from forge_worker.roadgeom import Profile
+from forge_worker.roadnet import load_osm
 from forge_worker.scene import road_meshes
 from forge_worker.stages.common import (
     hash_of,
     mark_stage,
     read_json,
+    selection_from_params,
     stage_inputs,
     stage_is_fresh,
     write_json,
@@ -33,7 +39,7 @@ from forge_worker.stages.common import (
 from forge_worker.stages.world import CODE_VERSION, load_road_model
 from forge_worker.terrain import Dtm
 
-EXPORT_VERSION = 2
+EXPORT_VERSION = 3
 
 
 def run_export(ctx: StageContext) -> None:
@@ -67,6 +73,8 @@ def run_export(ctx: StageContext) -> None:
         tree = out_dir / "beamng_tree"
         ctx.report(0.2, "Laying the aerial photo over the ground")
         photo = _ground_photo(ctx, dtm)
+        ctx.report(0.4, "Putting up the buildings")
+        blocks, n_buildings = _buildings(ctx, dtm, profiles)
         summary = write_level(
             tree,
             LevelInputs(
@@ -78,6 +86,7 @@ def run_export(ctx: StageContext) -> None:
                 spawn=read_json(ctx.workdir / "scene.json")["spawn"],
                 credits=(ctx.workdir / "CREDITS.txt").read_text(encoding="utf-8"),
                 ground_photo=photo,
+                buildings=blocks,
             ),
         )
         ctx.check_cancelled()
@@ -103,6 +112,37 @@ def _verdict(report: dict[str, Any]) -> str:
     if failed:
         return f"Built, but {failed} drivability checks need a look"
     return f"Drivable: {s['road_km']:.1f} km of road, {s['junctions']} junctions, all checks passed"
+
+
+def _buildings(
+    ctx: StageContext, dtm: Dtm, profiles: list[Profile]
+) -> tuple[dict[str, dict[str, Soup]], int]:
+    """Buildings from the map, grouped into 512 m blocks so the game only draws the near ones."""
+    vectors = read_json(ctx.workdir / "fetch_manifest.json")["layers"]["vectors"]
+    sel = selection_from_params(ctx.params)
+    osm_nodes, ways = load_osm([ctx.env.cache.root / f["path"] for f in vectors["files"]])
+    roads: list[BaseGeometry] = [
+        LineString(p.xy).buffer(p.edge.width / 2 + 1.0, cap_style="flat") for p in profiles if len(p.xy) >= 2
+    ]
+    found, stats = load_buildings(
+        osm_nodes, ways, sel.georef, sel.skirt_local.intersection(dtm_box(dtm)), roads
+    )
+    groups: dict[str, list[Building]] = {}
+    for b in found:
+        c = b.footprint.centroid
+        groups.setdefault(f"buildings_{int(c.x // 512) + 500:03d}_{int(c.y // 512) + 500:03d}", []).append(b)
+    blocks = {name: building_meshes(items, dtm) for name, items in sorted(groups.items())}
+    if stats["buildings_on_road_left_out"]:
+        ctx.log(
+            f"Left out {stats['buildings_on_road_left_out']} buildings that the map draws on top of a road"
+        )
+    ctx.log(f"Buildings: {len(found)} from the map, with their real outline and height where the map has it")
+    return blocks, len(found)
+
+
+def dtm_box(dtm: Dtm) -> BaseGeometry:
+    rows, cols = dtm.shape
+    return box(dtm.west + 4, dtm.north - rows * dtm.res + 4, dtm.west + cols * dtm.res - 4, dtm.north - 4)
 
 
 def _ground_photo(ctx: StageContext, dtm: Dtm) -> NDArray[np.uint8] | None:

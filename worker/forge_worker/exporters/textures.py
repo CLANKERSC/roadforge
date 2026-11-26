@@ -2,11 +2,14 @@
 
 Every texture tiles without a visible seam (the noise is periodic) and is the same for the same
 seed, so builds stay reproducible. Colours are sRGB 0-255; "data" maps are plain grey values.
+Results are kept in memory (treat the arrays as read-only): making them again takes seconds.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 from numpy.typing import NDArray
@@ -61,6 +64,7 @@ class TextureSet:
     tile_m: float  # how many metres one repeat of the texture covers
 
 
+@lru_cache(maxsize=32)
 def asphalt(size: int = 1024, seed: int = 11) -> TextureSet:
     """Worn road asphalt: dark grey binder, fine pale stones, faint larger patches."""
     grain = tile_noise(size, seed, 0.3, low_cut=size / 6)  # stones of 1-3 pixels
@@ -79,6 +83,7 @@ def asphalt(size: int = 1024, seed: int = 11) -> TextureSet:
     )
 
 
+@lru_cache(maxsize=32)
 def concrete(size: int = 1024, seed: int = 21) -> TextureSet:
     grain = tile_noise(size, seed, 0.6, low_cut=size / 10)
     patch = tile_noise(size, seed + 1, 2.2, low_cut=2)
@@ -94,6 +99,7 @@ def concrete(size: int = 1024, seed: int = 21) -> TextureSet:
     )
 
 
+@lru_cache(maxsize=32)
 def gravel(
     size: int = 1024, seed: int = 31, base: tuple[float, float, float] = (132.0, 120.0, 100.0)
 ) -> TextureSet:
@@ -113,6 +119,7 @@ def gravel(
     )
 
 
+@lru_cache(maxsize=32)
 def cobble(size: int = 1024, seed: int = 41, stones_across: int = 16) -> TextureSet:
     """Rows of rounded setts with dark joints."""
     cell = size / stones_across
@@ -138,6 +145,7 @@ def cobble(size: int = 1024, seed: int = 41, stones_across: int = 16) -> Texture
     )
 
 
+@lru_cache(maxsize=32)
 def grass(size: int = 1024, seed: int = 51) -> TextureSet:
     """Meadow seen from a car: blades as fine streaks, clumps, a few dry patches."""
     blades = tile_noise(size, seed, 0.5, low_cut=size / 5)
@@ -159,6 +167,7 @@ def grass(size: int = 1024, seed: int = 51) -> TextureSet:
     )
 
 
+@lru_cache(maxsize=32)
 def paint(size: int = 256, seed: int = 61) -> TextureSet:
     """Road-marking paint: off-white, slightly worn."""
     wear = tile_noise(size, seed, 1.2, low_cut=4)
@@ -169,6 +178,83 @@ def paint(size: int = 256, seed: int = 61) -> TextureSet:
         color=_rgb((232.0, 232.0, 224.0), shade),
         normal=normal_map(flat + 0.1 * grain, 1.0),
         roughness=_grey(0.55 + 0.2 * grain),
+        ao=_grey(np.ones((size, size))),
+        height=_grey(flat),
+        tile_m=2.0,
+    )
+
+
+@lru_cache(maxsize=32)
+def facade(size: int = 512, seed: int = 101) -> TextureSet:
+    """One window in a plastered wall, 3 m wide and one storey high. Light, so a material's
+    colour factor can tint it into different houses."""
+    grain = tile_noise(size, seed, 0.6, low_cut=size / 10)
+    stain = tile_noise(size, seed + 1, 2.2, low_cut=2)
+    shade = 0.93 + 0.08 * grain + 0.08 * (stain - 0.5)
+    color = np.stack([232.0 * shade, 228.0 * shade, 218.0 * shade])
+    height = 0.6 + 0.1 * (grain - 0.5)
+    rough = 0.9 - 0.05 * grain
+    y, x = np.mgrid[0:size, 0:size] / size  # y runs down the image; the window sits mid-wall
+    u, v = np.abs(x - 0.5), np.abs(y - 0.47)
+    frame = (u < 0.185) & (v < 0.235)
+    glass = (u < 0.165) & (v < 0.215)
+    bars = glass & ((u < 0.008) | (np.abs(y - 0.40) < 0.008))
+    sill = (u < 0.2) & (y > 0.705) & (y < 0.725)
+    color[:, frame | sill] = np.array([[236.0], [234.0], [228.0]])
+    sky = 70.0 + 50.0 * (0.682 - y) / 0.43  # glass: darker at the bottom, a hint of sky on top
+    for band, tint in enumerate((0.62, 0.74, 0.86)):
+        color[band][glass] = (sky * tint)[glass]
+    color[:, bars] = np.array([[236.0], [234.0], [228.0]])
+    height = np.where(glass, 0.2, np.where(frame | sill, 0.8, height))
+    rough = np.where(glass, 0.12, rough)
+    return TextureSet(
+        color=np.asarray(np.rint(np.clip(color, 0, 255)), dtype=np.uint8),
+        normal=normal_map(height, 3.0),
+        roughness=_grey(rough),
+        ao=_grey(np.where(glass, 0.8, 1.0)),
+        height=_grey(height),
+        tile_m=3.0,
+    )
+
+
+@lru_cache(maxsize=32)
+def roof_tiles(size: int = 512, seed: int = 111, rows: int = 8) -> TextureSet:
+    """Rows of clay tiles; each row casts a small shadow on the one below."""
+    y, x = np.mgrid[0:size, 0:size].astype(np.float64)
+    cell = size / rows
+    row = np.floor(y / cell)
+    along = (y % cell) / cell  # 0 at the top of a tile row, 1 at its lower edge
+    xs = (x + (row % 2) * cell / 2) % cell / cell
+    bump = np.sin(xs * math.pi) ** 0.6  # the round back of each tile
+    rng = np.random.default_rng(seed)
+    tone = rng.uniform(0.85, 1.12, (rows, rows * 2))
+    per_tile = tone[
+        row.astype(int) % rows, np.floor((x + (row % 2) * cell / 2) / cell).astype(int) % (rows * 2)
+    ]
+    grain = tile_noise(size, seed + 1, 0.7, low_cut=size / 10)
+    shade = (0.55 + 0.45 * along) * (0.8 + 0.2 * bump) * per_tile * (0.9 + 0.2 * grain)
+    height = 0.3 + 0.5 * along * bump
+    return TextureSet(
+        color=_rgb((168.0, 82.0, 58.0), shade),
+        normal=normal_map(height, 3.0),
+        roughness=_grey(0.85 + 0.1 * grain),
+        ao=_grey(0.5 + 0.5 * along),
+        height=_grey(height),
+        tile_m=2.0,
+    )
+
+
+@lru_cache(maxsize=32)
+def roofing_felt(size: int = 512, seed: int = 121) -> TextureSet:
+    """Dark flat-roof sheeting."""
+    grain = tile_noise(size, seed, 0.5, low_cut=size / 8)
+    patch = tile_noise(size, seed + 1, 2.2, low_cut=2)
+    shade = 0.85 + 0.2 * grain + 0.2 * (patch - 0.5)
+    flat = np.full((size, size), 0.5)
+    return TextureSet(
+        color=_rgb((84.0, 84.0, 86.0), shade),
+        normal=normal_map(flat + 0.1 * grain, 1.5),
+        roughness=_grey(0.9 - 0.05 * grain),
         ao=_grey(np.ones((size, size))),
         height=_grey(flat),
         tile_m=2.0,

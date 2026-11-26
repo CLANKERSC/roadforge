@@ -84,7 +84,13 @@ and a `SpawnSphere` named `spawns_default`, which `info.json` lists as the defau
 - The game notes a missing `theTerrain.ter.depth.png` and "No minimap data in info.json". Both
   are harmless and not written yet.
 
+## Buildings
+
+`art/shapes/buildings/buildings_XXX_YYY.dae`, one file per 512 m block, each a `TSStatic` with
+mesh collision under `main/MissionGroup/Buildings`. Six materials: four tinted plaster walls
+sharing one window texture, clay tiles, flat-roof sheeting. **Assumed:** `annotation: BUILDINGS`.
+
 ## Not done yet
 
-Buildings, trees, water, tunnels (open
+ trees, water, tunnels (open
 cuttings for now).

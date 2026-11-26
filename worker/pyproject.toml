@@ -1,6 +1,6 @@
 [project]
 name = "forge-worker"
-version = "0.3.1"
+version = "0.3.2"
 description = "Local pipeline worker for the map-to-track generator"
 requires-python = ">=3.11"
 dependencies = [

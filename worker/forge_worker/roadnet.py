@@ -26,17 +26,17 @@ XY = NDArray[np.float64]
 
 # class -> (default lanes, lane width m, max grade, AI speed cap km/h)
 ROAD_CLASSES: dict[str, tuple[int, float, float, float]] = {
-    "motorway": (2, 3.5, 0.08, 130),
-    "trunk": (2, 3.5, 0.10, 110),
-    "primary": (2, 3.25, 0.12, 90),
-    "secondary": (2, 3.25, 0.14, 90),
-    "tertiary": (2, 3.0, 0.16, 90),
-    "unclassified": (2, 2.75, 0.20, 70),
-    "residential": (2, 3.0, 0.20, 50),
-    "living_street": (1, 4.0, 0.20, 20),
-    "service": (1, 3.0, 0.22, 30),
-    "track": (1, 2.5, 0.30, 30),
-    "road": (2, 3.0, 0.20, 50),
+    "motorway": (2, 3.5, 0.10, 130),
+    "trunk": (2, 3.5, 0.12, 110),
+    "primary": (2, 3.25, 0.15, 90),
+    "secondary": (2, 3.25, 0.18, 90),
+    "tertiary": (2, 3.0, 0.22, 90),
+    "unclassified": (2, 2.75, 0.25, 70),
+    "residential": (2, 3.0, 0.25, 50),
+    "living_street": (1, 4.0, 0.25, 20),
+    "service": (1, 3.0, 0.28, 30),
+    "track": (1, 2.5, 0.35, 30),
+    "road": (2, 3.0, 0.25, 50),
 }
 SKIP_SERVICE = {"parking_aisle", "driveway", "drive-through"}
 UNPAVED = {

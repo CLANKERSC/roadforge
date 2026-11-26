@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.2 – Buildings (2026-11-26)
+
+- Buildings from OpenStreetMap stand in the BeamNG map: real outline and position, real height
+  where the map has it (otherwise a guess by type and size), plastered walls with windows in
+  four colours, pitched tile roofs on house-shaped footprints, flat roofs on halls and blocks.
+  They are solid. A building the map draws on top of a road is left out so the road stays open.
+- Slope limits raised (tertiary 22 %, residential 25 %, track 35 %, motorway 10 %). With the
+  stricter limits a real 20 % village road was flattened and ended on a 4 m bank; in the real
+  Turkovice data 92 % of all road points now lie within 0.5 m of the measured ground.
+- Not yet: trees, street-level detail (real facade colours, signs, fences).
+
 ## 0.3.1 – First fixes from the real game (2026-11-26)
 
 The 0.3.0 mod was loaded in BeamNG.drive 0.40.6: it appears in Freeroam, loads, and the car

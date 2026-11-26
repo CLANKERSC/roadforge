@@ -41,7 +41,7 @@ from forge_worker.stages.common import (
 from forge_worker.terrain import DTM_RES, Dtm, build_dtm
 from forge_worker.validate import check_drivability, clearance
 
-CODE_VERSION = 2  # bump when a stage's output changes, so old cached stages are rebuilt
+CODE_VERSION = 3  # bump when a stage's output changes, so old cached stages are rebuilt
 MAX_DTM_CELLS = 30_000_000
 DTM_STEPS = (DTM_RES, 3.0, 4.0, 6.0, 8.0)
 

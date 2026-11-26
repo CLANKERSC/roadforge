@@ -15,7 +15,7 @@ import json
 import math
 import uuid
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +24,7 @@ import rasterio
 from numpy.typing import NDArray
 
 from forge_worker.brand import brand
+from forge_worker.buildings import Soup
 from forge_worker.exporters import textures
 from forge_worker.exporters.beamng.dae import write_dae
 from forge_worker.exporters.beamng.ter import TerrainGrid, pack_heights, write_ter
@@ -48,6 +49,15 @@ SURFACES: dict[str, str] = {
     "apron": "GRASS",
     "marking": "ASPHALT",
     "wall": "CONCRETE",
+}
+# building material -> (texture set name, colour tint 0-1): plaster in the colours of a Czech village
+BUILDING_MATERIALS: dict[str, tuple[str, tuple[float, float, float]]] = {
+    "wall_0": ("facade", (1.0, 0.98, 0.92)),
+    "wall_1": ("facade", (0.96, 0.86, 0.66)),
+    "wall_2": ("facade", (0.86, 0.87, 0.86)),
+    "wall_3": ("facade", (0.95, 0.80, 0.70)),
+    "roof_tile": ("roof_tile", (1.0, 1.0, 1.0)),
+    "roof_flat": ("roof_flat", (1.0, 1.0, 1.0)),
 }
 NAV_MATERIAL = "rf_road_invisible"
 # AI speed and behaviour hints per road type: drivability as BeamNG's navigation uses it
@@ -179,6 +189,8 @@ class LevelInputs:
     country: str = ""
     # Aerial or satellite photo of the padded terrain square, (3, n, n) sRGB, north up; None = plain green
     ground_photo: NDArray[np.uint8] | None = None
+    # buildings, grouped into blocks: block name -> material ("wall_0", "roof_tile", ...) -> triangles
+    buildings: dict[str, dict[str, Soup]] = field(default_factory=dict)
 
 
 def _preview(path: Path, dtm: Dtm, profiles: list[Profile], size: int = 512) -> None:
@@ -405,6 +417,76 @@ def write_level(root: Path, inp: LevelInputs) -> dict[str, Any]:
         json.dumps(nav_material, indent=2, sort_keys=True), encoding="utf-8"
     )
 
+    # -- buildings -------------------------------------------------------------
+    building_statics: list[dict[str, Any]] = []
+    if inp.buildings:
+        (level / "art/shapes/buildings").mkdir(parents=True, exist_ok=True)
+        (level / "main/MissionGroup/Buildings").mkdir(parents=True, exist_ok=True)
+        bdir = f"{base}/art/shapes/buildings"
+        sets = {
+            "facade": textures.facade(ROAD_TEX),
+            "roof_tile": textures.roof_tiles(ROAD_TEX),
+            "roof_flat": textures.roofing_felt(ROAD_TEX),
+        }
+        for set_name, ts in sets.items():
+            for ending, pixels in (("b.color", ts.color), ("nm.normal", ts.normal),
+                                   ("r.data", ts.roughness), ("ao.data", ts.ao)):  # fmt: skip
+                _png(level / "art/shapes/buildings" / f"rf_{set_name}_{ending}.png", pixels)
+        building_materials: dict[str, Any] = {}
+        for mat, (set_name, tint) in sorted(BUILDING_MATERIALS.items()):
+            name = material_name(mat)
+            building_materials[name] = {
+                "class": "Material",
+                "name": name,
+                "mapTo": name,
+                "persistentId": _id(lid, name),
+                "Stages": [
+                    {
+                        "baseColorMap": f"{bdir}/rf_{set_name}_b.color.png",
+                        "normalMap": f"{bdir}/rf_{set_name}_nm.normal.png",
+                        "roughnessMap": f"{bdir}/rf_{set_name}_r.data.png",
+                        "ambientOcclusionMap": f"{bdir}/rf_{set_name}_ao.data.png",
+                        "baseColorFactor": [*tint, 1],
+                        "roughnessFactor": 1,
+                        "metallicFactor": 0,
+                    },
+                    {},
+                    {},
+                    {},
+                ],
+                "groundType": "CONCRETE",
+                "annotation": "BUILDINGS",
+                "doubleSided": True,  # a wall must never look see-through, whichever way it was drawn
+                "version": 1.5,
+            }
+        (level / "art/shapes/buildings/main.materials.json").write_text(
+            json.dumps(building_materials, indent=2, sort_keys=True), encoding="utf-8"
+        )
+        for block, soups in sorted(inp.buildings.items()):
+            bparts = [
+                (f"{block}_{mat}", material_name(mat), *soup.arrays()) for mat, soup in sorted(soups.items())
+            ]
+            write_dae(level / "art/shapes/buildings" / f"{block}.dae", bparts)
+            building_statics.append(
+                {
+                    "class": "TSStatic",
+                    "name": block,
+                    "__parent": "Buildings",
+                    "persistentId": _id(lid, block),
+                    "shapeName": f"{bdir}/{block}.dae",
+                    "position": [0, 0, 0],
+                    "rotationMatrix": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+                    "scale": [1, 1, 1],
+                    "collisionType": "Visible Mesh Final",
+                    "decalType": "Visible Mesh Final",
+                    "annotation": "BUILDINGS",
+                    "useInstanceRenderData": True,
+                }
+            )
+        (level / "main/MissionGroup/Buildings/items.level.json").write_text(
+            _lines(building_statics), encoding="utf-8"
+        )
+
     # -- scene objects ---------------------------------------------------------
     def group(name: str, parent: str | None) -> dict[str, Any]:
         obj = {"class": "SimGroup", "name": name, "persistentId": _id(lid, f"group-{name}")}
@@ -476,6 +558,7 @@ def write_level(root: Path, inp: LevelInputs) -> dict[str, Any]:
         },
         group("RoadMeshes", "MissionGroup"),
         group("Roads", "MissionGroup"),
+        *([group("Buildings", "MissionGroup")] if building_statics else []),
     ]
     roads = [decal_road(p, lid) for p in inp.profiles if len(p.s) >= 2 and p.length >= 2.0]
     (level / "main/items.level.json").write_text(_lines([group("MissionGroup", None)]), encoding="utf-8")
@@ -517,6 +600,7 @@ def write_level(root: Path, inp: LevelInputs) -> dict[str, Any]:
         "terrain_position": list(grid.position),
         "road_mesh_files": len(statics),
         "ai_roads": len(roads),
+        "building_files": len(building_statics),
     }
 
 

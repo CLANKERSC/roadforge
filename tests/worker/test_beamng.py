@@ -309,3 +309,48 @@ def test_motorway_gets_shoulders_and_lane_lines() -> None:
     width, lanes, measured = road_width({"highway": "motorway", "lanes": "2"}, "motorway")
     assert (width, lanes, measured) == (10.0, 2, False)
     assert road_width({"highway": "motorway", "width": "8"}, "motorway")[0] == 8.0
+
+
+def test_buildings_stand_on_the_ground_and_off_the_road() -> None:
+    from shapely.geometry import LineString, box
+
+    from forge_worker.buildings import building_height, building_meshes, load_buildings
+    from forge_worker.geo import Georef
+
+    georef = Georef(50.0, 14.0)
+    nodes: dict[int, tuple[float, float]] = {}
+
+    def ring(start: int, x: float, y: float, w: float, d: float) -> list[int]:
+        ids = list(range(start, start + 4))
+        for i, (px, py) in zip(ids, [(x, y), (x + w, y), (x + w, y + d), (x, y + d)], strict=True):
+            nodes[i] = georef.to_lonlat(px, py)
+        return [*ids, ids[0]]
+
+    ways = [
+        {"id": 1, "nodes": ring(10, 20, 20, 12, 8), "tags": {"building": "house", "building:levels": "2"}},
+        {"id": 2, "nodes": ring(20, -4, 60, 8, 8), "tags": {"building": "yes"}},  # drawn across the road
+        {"id": 3, "nodes": ring(30, 60, 20, 30, 40), "tags": {"building": "industrial", "height": "9"}},
+        {"id": 4, "nodes": ring(40, 500, 500, 10, 10), "tags": {"building": "yes"}},  # outside the area
+    ]
+    road = LineString([(0, 0), (0, 100)]).buffer(4)
+    found, stats = load_buildings(nodes, ways, georef, box(-100, -100, 200, 200), [road])
+    assert [b.osm_id for b in found] == [1, 3] and stats["buildings_on_road_left_out"] == 1
+    assert found[0].height == pytest.approx(6.4) and found[0].pitched
+    assert found[1].height == 9.0 and not found[1].pitched
+    assert building_height({"building": "garage"}, 30.0) == 2.8
+
+    z = np.fromfunction(lambda r, c: 300 + 0.1 * c, (150, 150)).astype(np.float32)  # ground rises to the east
+    dtm = Dtm(z=z, west=-100.0, north=200.0, res=2.0, proj4=georef.proj4)
+    soups = building_meshes(found, dtm)
+    assert {"roof_tile", "roof_flat"} <= set(soups) and any(k.startswith("wall_") for k in soups)
+    for soup in soups.values():
+        v, uv, f = soup.arrays()
+        assert len(v) == len(uv) and f.max() < len(v) and np.isfinite(v).all()
+    house = np.concatenate([s.arrays()[0] for k, s in soups.items() if k.startswith("wall_")])
+    near = house[(house[:, 0] < 40)]
+    ground_low = float(dtm.sample([20.0], [20.0])[0])
+    assert near[:, 2].min() < ground_low  # the walls reach into the ground: no gap under the house
+    roof = soups["roof_tile"].arrays()[0]
+    assert (
+        roof[:, 2].max() > near[:, 2].max() - 1e-6 and roof[:, 2].max() - ground_low > 7.0
+    )  # a pitched roof on top
