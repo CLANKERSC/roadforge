@@ -51,9 +51,45 @@ jobs:
       - run: npm test
       - run: npx vite build
 
+  e2e:
+    name: Click-through test (real UI + engine, fake internet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: pip install -e "./worker[dev]"
+      - run: npm ci && npx playwright install --with-deps chromium
+        working-directory: app
+      - run: node tests/e2e/e2e.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: tests/e2e/out/*.png
+
+  live:
+    name: Live download test (real map services)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e "./worker[dev]"
+      - run: pytest -q -s tests/live
+        env:
+          FORGE_LIVE: "1"
+
   windows-installer:
     name: Windows installer
-    needs: [worker, app]
+    needs: [worker, app, e2e]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,6 +109,9 @@ jobs:
         run: |
           pip install "./worker" pyinstaller
           python scripts/build_sidecar.py
+      - name: Check the bundled worker starts and its map libraries work
+        shell: bash
+        run: ./app/src-tauri/binaries/forge-worker-*.exe --self-test
       - name: Build the app and installers
         working-directory: app
         run: |

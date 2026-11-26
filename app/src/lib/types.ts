@@ -29,3 +29,43 @@ export interface LogEntry {
 }
 
 export type WorkerEvent = { type: "job"; job: Job } | { type: "log"; log: LogEntry };
+
+export interface SourceDesc {
+  id: string;
+  name: string;
+  resolution_m: number | null;
+  licence: string;
+  licence_url: string;
+  attribution: string;
+  coverage: string;
+  note: string;
+  fallback: boolean;
+}
+
+export interface Plan {
+  ok: boolean;
+  problems: string[];
+  mode?: "route" | "area";
+  area_km2?: number;
+  route_km?: number | null;
+  size_km?: [number, number];
+  layers: Partial<Record<"elevation" | "imagery" | "vectors", { chosen: SourceDesc; fallbacks: SourceDesc[] }>>;
+  est_download_mb?: number;
+  est_minutes?: number;
+  ids?: { ac: string; beamng: string };
+  outline?: GeoJSON.FeatureCollection;
+}
+
+export interface Place {
+  name: string;
+  lat: number;
+  lon: number;
+  bbox: [number, number, number, number] | null;
+}
+
+export interface RouteResult {
+  coords: [number, number][];
+  km: number;
+  routed: boolean;
+  warning: string;
+}

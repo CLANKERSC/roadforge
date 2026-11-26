@@ -1,4 +1,5 @@
-import type { Job, LogEntry, WorkerEvent } from "./types";
+import type { Job, LogEntry, Place, Plan, RouteResult, WorkerEvent } from "./types";
+import type { LonLat, SelectionPayload } from "./selection";
 
 export interface WorkerInfo {
   url: string;
@@ -39,7 +40,13 @@ export class WorkerClient {
         ...(init.headers ?? {}),
       },
     });
-    if (!res.ok) throw new Error(`${init.method ?? "GET"} ${path} failed: ${res.status}`);
+    if (!res.ok) {
+      const detail = await res
+        .json()
+        .then((b: { detail?: unknown }) => (typeof b.detail === "string" ? b.detail : ""))
+        .catch(() => "");
+      throw new Error(detail || `${init.method ?? "GET"} ${path} failed: ${res.status}`);
+    }
     return (await res.json()) as T;
   }
 
@@ -54,6 +61,21 @@ export class WorkerClient {
   }
   createDemoJob(name: string) {
     return this.req<Job>("/jobs", { method: "POST", body: JSON.stringify({ kind: "demo", name, params: {} }) });
+  }
+  plan(selection: SelectionPayload, name: string) {
+    return this.req<Plan>("/plan", { method: "POST", body: JSON.stringify({ selection, name: name || "My map" }) });
+  }
+  search(query: string) {
+    return this.req<{ places: Place[] }>(`/search?q=${encodeURIComponent(query)}`).then((r) => r.places);
+  }
+  route(waypoints: LonLat[]) {
+    return this.req<RouteResult>("/route", { method: "POST", body: JSON.stringify({ waypoints }) });
+  }
+  createBuild(name: string, selection: SelectionPayload) {
+    return this.req<Job>("/jobs", {
+      method: "POST",
+      body: JSON.stringify({ kind: "build", name, params: { selection, name } }),
+    });
   }
   cancel(jobId: string) {
     return this.req<Job>(`/jobs/${jobId}/cancel`, { method: "POST" });

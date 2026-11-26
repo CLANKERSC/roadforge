@@ -7,6 +7,7 @@ import time
 import traceback
 from typing import Any
 
+from forge_worker.env import WorkerEnv
 from forge_worker.events import EventBus
 from forge_worker.pipeline import JobCancelled, JobInterrupted, get_pipeline
 from forge_worker.store import FINAL_STATES, Job, JobStore
@@ -17,6 +18,8 @@ class _Context:
         self._runner = runner
         self.job_id = job.id
         self.params: dict[str, Any] = job.params
+        self.env = runner.env
+        self.workdir = runner.env.build_dir(job.id)
         self._stage_index = stage_index
         self._stage_count = stage_count
         self._last_publish = 0.0
@@ -51,7 +54,8 @@ class _Context:
 
 
 class JobRunner:
-    def __init__(self, store: JobStore, bus: EventBus) -> None:
+    def __init__(self, store: JobStore, bus: EventBus, env: WorkerEnv) -> None:
+        self.env = env
         self.store = store
         self.bus = bus
         self.wake = threading.Event()  # set when a job is queued or cancelled

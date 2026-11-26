@@ -19,9 +19,14 @@ from pydantic import BaseModel, Field
 from forge_worker import __version__
 from forge_worker import stages as _stages  # noqa: F401  (registers pipelines)
 from forge_worker.brand import brand
+from forge_worker.env import WorkerEnv
 from forge_worker.events import EventBus
+from forge_worker.http import HttpError
 from forge_worker.pipeline import pipelines
+from forge_worker.planning import make_plan
 from forge_worker.runner import JobRunner
+from forge_worker.selection import SelectionError, SelectionRequest, build_selection
+from forge_worker.services import route_along_roads, search_places
 from forge_worker.store import JobStore
 
 # Origins of the Tauri webview (Windows/Linux/macOS) and the Vite dev server.
@@ -40,10 +45,21 @@ class CreateJob(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
-def create_app(db_path: Path, token: str) -> FastAPI:
+class PlanRequest(BaseModel):
+    selection: SelectionRequest
+    name: str = Field(default="My map", max_length=120)
+
+
+class RouteRequest(BaseModel):
+    waypoints: list[tuple[float, float]] = Field(min_length=2, max_length=25)
+
+
+def create_app(data_dir: Path, token: str, env: WorkerEnv | None = None) -> FastAPI:
+    data_dir.mkdir(parents=True, exist_ok=True)
+    env = env or WorkerEnv(data_dir)
     bus = EventBus()
-    store = JobStore(db_path)
-    runner = JobRunner(store, bus)
+    store = JobStore(data_dir / "jobs.sqlite3")
+    runner = JobRunner(store, bus, env)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -51,6 +67,8 @@ def create_app(db_path: Path, token: str) -> FastAPI:
         yield
         runner.stop()
         store.close()
+        if "cache" in env.__dict__:
+            env.cache.close()
 
     app = FastAPI(title=f"{brand()['name']} worker", version=__version__, lifespan=lifespan)
     app.add_middleware(
@@ -83,6 +101,27 @@ def create_app(db_path: Path, token: str) -> FastAPI:
             {"kind": p.kind, "label": p.label, "stages": [{"id": s.id, "label": s.label} for s in p.stages]}
             for p in pipelines()
         ]
+
+    @app.post("/plan", dependencies=auth)
+    def plan(body: PlanRequest) -> dict[str, Any]:
+        """Size, limits, chosen data sources and estimates for what the user drew."""
+        try:
+            return make_plan(build_selection(body.selection), body.name)
+        except SelectionError as exc:
+            return {"ok": False, "problems": [str(exc)], "layers": {}}
+
+    @app.get("/search", dependencies=auth)
+    def search(q: str, lang: str = "en") -> dict[str, Any]:
+        if not q.strip() or len(q) > 200:
+            raise HTTPException(status_code=400, detail="empty or too long query")
+        try:
+            return {"places": [p.to_dict() for p in search_places(env.http, q, lang)]}
+        except HttpError as exc:
+            raise HTTPException(status_code=502, detail=f"Place search is not reachable ({exc})") from None
+
+    @app.post("/route", dependencies=auth)
+    def route(body: RouteRequest) -> dict[str, Any]:
+        return route_along_roads(env.http, body.waypoints).to_dict()
 
     @app.post("/jobs", dependencies=auth, status_code=201)
     def create_job(body: CreateJob) -> dict[str, Any]:
