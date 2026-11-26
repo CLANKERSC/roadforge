@@ -8,7 +8,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from forge_worker.exporters.beamng.level import LevelInputs, write_level, zip_level
+import numpy as np
+from numpy.typing import NDArray
+from rasterio.crs import CRS
+
+from forge_worker.exporters.beamng.level import (
+    LevelInputs,
+    default_ground_photo,
+    shrink_for_beamng,
+    write_level,
+    zip_level,
+)
+from forge_worker.imagery import ground_photo
 from forge_worker.pipeline import StageContext
 from forge_worker.scene import road_meshes
 from forge_worker.stages.common import (
@@ -22,7 +33,7 @@ from forge_worker.stages.common import (
 from forge_worker.stages.world import CODE_VERSION, load_road_model
 from forge_worker.terrain import Dtm
 
-EXPORT_VERSION = 1
+EXPORT_VERSION = 2
 
 
 def run_export(ctx: StageContext) -> None:
@@ -54,6 +65,8 @@ def run_export(ctx: StageContext) -> None:
         dtm = Dtm.read(ctx.workdir / "dtm_conformed.tif")
         profiles, _, _, mesh, _ = load_road_model(ctx.workdir)
         tree = out_dir / "beamng_tree"
+        ctx.report(0.2, "Laying the aerial photo over the ground")
+        photo = _ground_photo(ctx, dtm)
         summary = write_level(
             tree,
             LevelInputs(
@@ -64,6 +77,7 @@ def run_export(ctx: StageContext) -> None:
                 profiles=profiles,
                 spawn=read_json(ctx.workdir / "scene.json")["spawn"],
                 credits=(ctx.workdir / "CREDITS.txt").read_text(encoding="utf-8"),
+                ground_photo=photo,
             ),
         )
         ctx.check_cancelled()
@@ -89,6 +103,39 @@ def _verdict(report: dict[str, Any]) -> str:
     if failed:
         return f"Built, but {failed} drivability checks need a look"
     return f"Drivable: {s['road_km']:.1f} km of road, {s['junctions']} junctions, all checks passed"
+
+
+def _ground_photo(ctx: StageContext, dtm: Dtm) -> NDArray[np.uint8] | None:
+    """The downloaded photo of the place, cut to the square BeamNG's terrain covers."""
+    layer = read_json(ctx.workdir / "fetch_manifest.json")["layers"].get("imagery")
+    if not layer or not layer.get("files"):
+        ctx.log("No aerial photo was downloaded for this place: the ground is plain green", "warning")
+        return None
+    z, res = shrink_for_beamng(dtm)
+    cells = 1 << (max(*z.shape, 2) - 1).bit_length()  # same padding as the terrain file
+    extent = cells * res
+    pixels = 2048 if extent <= 3000 else 4096
+    south = dtm.north - z.shape[0] * res
+    rgb, covered = ground_photo(
+        layer["files"],
+        ctx.env.cache.root,
+        CRS.from_proj4(dtm.proj4),
+        dtm.west + res / 2,  # the terrain's first height sample sits in the middle of the first cell
+        south + res / 2 + extent,
+        extent,
+        pixels,
+    )
+    share = float(covered.mean())
+    if share < 0.02:
+        ctx.log("The aerial photo could not be read: the ground is plain green", "warning")
+        return None
+    filler = default_ground_photo(pixels)
+    rgb[:, ~covered] = filler[:, ~covered]
+    ctx.log(
+        f"Ground photo: {layer['name']}, {extent / pixels:.1f} m per pixel, "
+        f"covers {share * 100:.0f} % of the terrain square"
+    )
+    return rgb
 
 
 def _closing(verdict: str, result: dict[str, Any]) -> str:

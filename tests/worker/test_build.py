@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -140,3 +141,16 @@ def test_search_and_route(client: TestClient, fake_http: FakeHttp) -> None:
     assert len(offline["coords"]) == 2
     fake_http.offline_hosts = {"nominatim"}
     assert client.get("/search?q=brno", headers=AUTH).status_code == 502
+
+
+def test_cancel_works_while_a_download_hangs(client: TestClient, fake_http: FakeHttp) -> None:
+    fake_http.hang_hosts = {"overpass"}  # the map server accepts the request and then goes silent
+    body = {"kind": "build", "name": "Hang", "params": {"selection": PRAGUE_AREA, "name": "Hang"}}
+    job = client.post("/jobs", json=body, headers=AUTH).json()
+    wait_for(client, job["id"], {"running"}, timeout=10)
+    time.sleep(1.0)
+    client.post(f"/jobs/{job['id']}/cancel", headers=AUTH)
+    try:
+        assert wait_for(client, job["id"], {"cancelled", "failed", "done"}, timeout=5)["state"] == "cancelled"
+    finally:
+        fake_http.release.set()

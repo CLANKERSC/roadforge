@@ -165,8 +165,8 @@ export function BuildPanel(p: Props) {
           Build it
         </button>
         <p className="muted small">
-          This version checks your selection and downloads the map data. Turning it into a game map comes in the next
-          milestones.
+          The build downloads the map data, builds the roads and the ground, checks that every road is drivable and
+          writes a BeamNG.drive map. Assetto Corsa comes later.
         </p>
       </Step>
     </section>

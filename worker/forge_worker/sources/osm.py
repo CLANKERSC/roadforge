@@ -38,7 +38,7 @@ def query_overpass(ctx: FetchContext, query: str) -> dict[str, Any]:
         for url in OVERPASS_URLS:
             ctx.check_cancelled()
             try:
-                data = ctx.http.post_json(url, data={"data": query}, timeout=(10, 240))
+                data = ctx.http.post_json(url, data={"data": query}, timeout=(10, 120), total_timeout=300)
             except HttpError as exc:
                 if exc.status is not None and exc.status not in RETRY_STATUS:
                     raise  # our own mistake (bad query): another server would say the same

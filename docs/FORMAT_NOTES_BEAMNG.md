@@ -2,8 +2,12 @@
 
 What the BeamNG export writes, and how sure we are of each part. **Confirmed** means it is in
 BeamNG's public documentation or proven by our own round-trip test. **Assumed** means it follows
-what stock levels look like but has not been checked inside the game yet. Tested against the
-game: not yet (first real load is planned on BeamNG.drive 0.40).
+what stock levels look like but has not been checked inside the game yet. **Seen in the game**
+means it worked in BeamNG.drive 0.40.6 on 2026-11-26.
+
+Seen in the game so far: the mod is listed in Freeroam, the level loads, the terrain is in
+the right place and the right way round, the road mesh is solid, the car spawns on the road,
+`beamng.log` shows no errors for the level.
 
 ## The mod
 
@@ -65,7 +69,22 @@ TSStatic mesh is assumed.
 and a `SpawnSphere` named `spawns_default`, which `info.json` lists as the default spawn
 (confirmed). **Assumed:** the order of the 9 numbers in `rotationMatrix`.
 
+## Textures (checked against the stock level small_island)
+
+- Terrain textures are plain `.png`: base colour and normal 8-bit RGB, roughness / ao / height
+  8-bit **grey**. RGB data maps render as rainbow noise (seen in the game). Detail and macro maps
+  are 1024 px, base maps 2048 px (4096 for terrains wider than 3 km); `TerrainMaterialTextureSet`
+  states those sizes.
+- The base maps cover the whole terrain once (`...BaseTexSize` = terrain width in metres). The
+  base colour is the aerial photo, north up. **Assumed:** north-up is the orientation the game
+  expects; if the photo comes out mirrored against the roads, flip it here.
+- Road materials (version 1.5) name their files `_b.color.png`, `_nm.normal.png`, `_r.data.png`,
+  `_ao.data.png` as stock materials do. Texture coordinates are the map position in metres
+  divided by the tile size, so there is no seam at junctions.
+- The game notes a missing `theTerrain.ter.depth.png` and "No minimap data in info.json". Both
+  are harmless and not written yet.
+
 ## Not done yet
 
-Satellite photo on the terrain, real road textures, buildings, trees, water, tunnels (open
+Buildings, trees, water, tunnels (open
 cuttings for now).

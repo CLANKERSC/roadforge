@@ -16,8 +16,9 @@ it and press **Build it**. The build downloads terrain heights, imagery and Open
 builds the roads and the terrain in 3D (real road widths, real hills, junctions, bridges, lane
 markings), runs an automatic **drivability check**, and writes a **BeamNG.drive mod**.
 **View in 3D** shows the result; **Install to BeamNG** copies the mod into the game, where the
-map appears in Freeroam under the name you gave it. Assetto Corsa export comes next. The map is
-bare for now: plain colours, no buildings or trees. See [CHANGELOG.md](CHANGELOG.md).
+map appears in Freeroam under the name you gave it. Assetto Corsa export comes next. The ground
+shows the aerial photo of the place and the roads have real surfaces and lane lines; buildings
+and trees are not built yet. See [CHANGELOG.md](CHANGELOG.md).
 
 **The quality rule:** roads follow the real world as closely as the data allows, but they always
 come out drivable. Where the map or the height data is wrong or too rough (a bump, a cliff, a

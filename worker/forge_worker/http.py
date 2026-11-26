@@ -13,6 +13,9 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 from forge_worker.brand import user_agent
 
 TIMEOUT = (10, 120)  # connect, read seconds
+# The read timeout only limits the pause between two pieces of an answer, so a server that
+# trickles data could hold a download open for ever. This limits the whole request.
+TOTAL_TIMEOUT = 600.0
 RETRY_STATUS = {408, 425, 429, 500, 502, 503, 504}
 
 
@@ -59,8 +62,21 @@ class Http:
     )
     def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         self._throttle(url)
+        total = float(kwargs.pop("total_timeout", TOTAL_TIMEOUT))
+        end = time.monotonic() + total
+        caller_reads = bool(kwargs.pop("stream", False))  # big files: the caller reads the pieces itself
         try:
-            resp = self._session.request(method, url, timeout=kwargs.pop("timeout", TIMEOUT), **kwargs)
+            resp = self._session.request(
+                method, url, timeout=kwargs.pop("timeout", TIMEOUT), stream=True, **kwargs
+            )
+            if not caller_reads:
+                body = bytearray()
+                for chunk in resp.iter_content(65536):
+                    body += chunk
+                    if time.monotonic() > end:
+                        resp.close()
+                        raise HttpError(url, None, f"no complete answer within {total:.0f} s")
+                resp._content = bytes(body)
         except requests.RequestException as exc:
             raise HttpError(url, None, type(exc).__name__) from exc
         if resp.status_code >= 400:

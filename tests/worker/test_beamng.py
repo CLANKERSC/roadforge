@@ -239,3 +239,73 @@ def test_windows_data_moves_out_of_the_install_folder(tmp_path: Path) -> None:
     (old / "jobs.sqlite3").write_text("stale")
     move_old_data(old, new)  # a second run never overwrites the new data
     assert (new / "jobs.sqlite3").read_text() == "db"
+
+
+def _png_kind(data: bytes) -> tuple[int, int, int, int]:
+    """(width, height, bit depth, colour type) from a PNG header. Colour type 0 = grey, 2 = RGB."""
+    import struct
+
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    width, height, depth, kind = struct.unpack(">IIBB", data[16:26])
+    return width, height, depth, kind
+
+
+def test_textures_use_the_formats_of_the_games_own_levels(client: TestClient, db_path: Path) -> None:
+    """RGB roughness/ao/height maps showed up as rainbow noise on the ground in the real game."""
+    job = build(client, PRAGUE_AREA, name="Praha test")
+    assert job["state"] == "done", job["message"]
+    export = json.loads((db_path / "builds" / job["id"] / "export.json").read_text(encoding="utf-8"))
+    with zipfile.ZipFile(db_path / "builds" / job["id"] / export["games"]["beamng"]["zip"]) as z:
+        names = z.namelist()
+        terrain = [n for n in names if "/art/terrains/" in n and n.endswith(".png")]
+        assert len(terrain) == 15
+        for n in terrain:
+            w, h, depth, kind = _png_kind(z.read(n))
+            stem = n.rsplit("/", 1)[1][:-4]
+            assert depth == 8 and w == h
+            assert w == (2048 if stem.startswith("rf_base") else 1024), n
+            assert kind == (2 if stem.endswith(("_b", "_nm")) else 0), n  # colour and normal RGB, data grey
+        roads = [n for n in names if "/art/shapes/roads/" in n and n.endswith(".png")]
+        assert len(roads) == 8 * 4
+        for n in roads:
+            _, _, depth, kind = _png_kind(z.read(n))
+            assert depth == 8 and kind == (0 if n.endswith(".data.png") else 2), n
+        materials = json.loads(z.read("levels/praha_test/art/shapes/roads/main.materials.json"))
+        stage = materials["rf_asphalt"]["Stages"][0]
+        for key in ("baseColorMap", "normalMap", "roughnessMap", "ambientOcclusionMap"):
+            assert stage[key].lstrip("/") in names, key  # every texture a material names is in the mod
+        ground = json.loads(z.read("levels/praha_test/art/terrains/main.materials.json"))
+        grass = next(v for v in ground.values() if v["class"] == "TerrainMaterial")
+        for key, value in grass.items():
+            if key.endswith("Tex"):
+                assert value.lstrip("/") in names, key
+        # the aerial photo is on the ground: the base colour is not one flat green
+        from rasterio.io import MemoryFile
+
+        with MemoryFile(z.read("levels/praha_test/art/terrains/rf_base_b.png")) as mem, mem.open() as ds:
+            photo = ds.read()
+        assert photo.shape == (3, 2048, 2048)
+        assert float(photo.std(axis=(1, 2)).mean()) > 12
+    logs = client.get(f"/jobs/{job['id']}/logs", headers=AUTH).json()
+    assert any("Ground photo" in entry["message"] for entry in logs)
+
+
+def test_seamless_textures() -> None:
+    from forge_worker.exporters import textures
+
+    for ts in (textures.asphalt(256), textures.grass(256), textures.gravel(256), textures.cobble(256)):
+        colour = ts.color.astype(np.float64)
+        inner = np.abs(np.diff(colour, axis=2)).mean()
+        seam = np.abs(colour[:, :, 0] - colour[:, :, -1]).mean()
+        assert seam < 3 * inner + 2  # the left edge continues the right edge: no visible tile border
+        assert ts.roughness.shape == (1, 256, 256) and ts.normal.shape == (3, 256, 256)
+    asphalt = textures.asphalt(256).color.mean(axis=(1, 2))
+    assert 45 < asphalt[0] < 95 and abs(asphalt[0] - asphalt[2]) < 8  # dark neutral grey
+
+
+def test_motorway_gets_shoulders_and_lane_lines() -> None:
+    from forge_worker.roadnet import road_width
+
+    width, lanes, measured = road_width({"highway": "motorway", "lanes": "2"}, "motorway")
+    assert (width, lanes, measured) == (10.0, 2, False)
+    assert road_width({"highway": "motorway", "width": "8"}, "motorway")[0] == 8.0

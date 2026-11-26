@@ -75,6 +75,10 @@ def _number(text: str | None) -> float | None:
     return float(m.group(1).replace(",", ".")) if m else None
 
 
+# Paved strips beside the lanes of a motorway carriageway, when the map gives no width.
+HARD_SHOULDER, INNER_STRIP = 2.5, 0.5
+
+
 def road_width(tags: dict[str, str], cls: str) -> tuple[float, int, bool]:
     """(width in metres, lanes, True if the width was measured rather than assumed)."""
     default_lanes, lane_w, _, _ = ROAD_CLASSES[cls]
@@ -87,6 +91,8 @@ def road_width(tags: dict[str, str], cls: str) -> tuple[float, int, bool]:
     measured = width is not None and MIN_WIDTH <= width <= MAX_WIDTH
     if not measured:
         width = lanes * lane_w
+        if cls in {"motorway", "trunk"}:
+            width += HARD_SHOULDER + INNER_STRIP  # real motorways have paved strips beside the lanes
         if lanes == 1:
             width = max(width, 3.0)
     assert width is not None

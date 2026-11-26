@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.1 – First fixes from the real game (2026-11-26)
+
+The 0.3.0 mod was loaded in BeamNG.drive 0.40.6: it appears in Freeroam, loads, and the car
+spawns on the road and drives. These fixes come from that test.
+
+- Rainbow noise on the ground: the roughness, ambient-occlusion and height maps were RGB; the
+  game expects 8-bit grey, as in its own levels. All ground textures now follow the stock
+  formats and sizes.
+- The aerial (or satellite) photo of the place is laid over the ground, so fields, yards and
+  forests show where they really are. Close up it is mixed with a grass texture.
+- Roads have real surface textures (asphalt, concrete, cobbles, gravel), made by the app from
+  noise: no photo or game asset is copied. The banks beside the road are grass.
+- Lane lines on concrete roads too, lane dividers on multi-lane one-way roads, and motorway
+  carriageways get their paved shoulders (2 lanes: 10 m instead of 7 m) when the map gives no width.
+- A download can no longer hang for ever: every request has a time limit for the whole answer
+  (5 minutes for map data). Cancel now works while a download is stuck.
+- The drawn selection could vanish from the map when the base map changed its style: fixed.
+- The panel text no longer says game maps come later.
+
 ## M4 – BeamNG.drive export (2026-11-26), version 0.3.0
 
 Built ahead of M3 (Assetto Corsa) because BeamNG was asked for first.

@@ -273,24 +273,10 @@ def _offset_line(centre: A, nrm: A, off: float, lift: float) -> A:
     return out
 
 
-def _add_markings(soup: Soup, e, stations: A, centre: A, nrm: A) -> None:  # type: ignore[no-untyped-def]
-    if e.surface != "asphalt" or e.cls in {"track", "service", "living_street"} or len(stations) < 2:
-        return
-    hw = e.width / 2
-    if e.cls in {"motorway", "trunk", "primary", "secondary", "tertiary"} and e.width >= 5.5:
-        for side in (-1.0, 1.0):
-            off = side * (hw - 0.25)
-            soup.add_quad_strip(
-                _offset_line(centre, nrm, off + LINE_W / 2, MARK_LIFT),
-                _offset_line(centre, nrm, off - LINE_W / 2, MARK_LIFT),
-                stations, 0.0, 1.0,
-            )  # fmt: skip
-    if e.oneway or e.width < 5.5:
-        return
-    # dashed centre line: 3 m paint, 6 m gap, phase tied to distance so it is stable
-    left = _offset_line(centre, nrm, LINE_W / 2, MARK_LIFT)
-    right = _offset_line(centre, nrm, -LINE_W / 2, MARK_LIFT)
-    dash, period = 3.0, 9.0
+def _dashes(soup: Soup, centre: A, nrm: A, stations: A, off: float, dash: float, period: float) -> None:
+    """A dashed line at `off` metres left of the centre. The phase is tied to distance, so it is stable."""
+    left = _offset_line(centre, nrm, off + LINE_W / 2, MARK_LIFT)
+    right = _offset_line(centre, nrm, off - LINE_W / 2, MARK_LIFT)
     k = math.ceil(stations[0] / period)
     while k * period + dash <= stations[-1]:
         a, b = k * period, k * period + dash
@@ -300,6 +286,44 @@ def _add_markings(soup: Soup, e, stations: A, centre: A, nrm: A) -> None:  # typ
         seg_r = np.column_stack([np.interp(sv, stations, right[:, i]) for i in range(3)])
         soup.add_quad_strip(seg_l, seg_r, sv, 0.0, 1.0)
         k += 1
+
+
+def _solid(soup: Soup, centre: A, nrm: A, stations: A, off: float) -> None:
+    soup.add_quad_strip(
+        _offset_line(centre, nrm, off + LINE_W / 2, MARK_LIFT),
+        _offset_line(centre, nrm, off - LINE_W / 2, MARK_LIFT),
+        stations, 0.0, 1.0,
+    )  # fmt: skip
+
+
+def _add_markings(soup: Soup, e, stations: A, centre: A, nrm: A) -> None:  # type: ignore[no-untyped-def]
+    paved = e.surface in {"asphalt", "concrete"}
+    if not paved or e.cls in {"track", "service", "living_street"} or len(stations) < 2:
+        return
+    hw = e.width / 2
+    major = e.cls in {"motorway", "trunk", "primary", "secondary", "tertiary"}
+    if e.cls in {"motorway", "trunk"} and e.oneway and e.width >= 9.0:
+        # one carriageway: solid lines at both edges of the lanes, dashes between the lanes;
+        # the hard shoulder is on the right (negative offsets), the narrow strip on the left
+        lanes = max(1, int(e.lanes))
+        lane_w = (e.width - 3.0) / lanes
+        first = hw - 0.5  # left edge of the leftmost lane
+        _solid(soup, centre, nrm, stations, first)
+        _solid(soup, centre, nrm, stations, first - lanes * lane_w)
+        for i in range(1, lanes):
+            _dashes(soup, centre, nrm, stations, first - i * lane_w, 6.0, 18.0)
+        return
+    if major and e.width >= 5.5:
+        for side in (-1.0, 1.0):
+            _solid(soup, centre, nrm, stations, side * (hw - 0.25))
+    if e.width < 5.5:
+        return
+    if e.oneway:
+        lanes = max(1, int(e.lanes))
+        for i in range(1, lanes):
+            _dashes(soup, centre, nrm, stations, hw - i * e.width / lanes, 3.0, 9.0)
+        return
+    _dashes(soup, centre, nrm, stations, 0.0, 3.0, 9.0)  # centre line: 3 m paint, 6 m gap
 
 
 def _add_bridge_walls(soup: Soup, width: float, stations: A, centre: A, nrm: A) -> None:

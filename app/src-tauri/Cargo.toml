@@ -1,6 +1,6 @@
 [package]
 name = "roadforge"
-version = "0.3.0"
+version = "0.3.1"
 description = "Desktop shell: shows the UI and runs the local Python worker"
 edition = "2021"
 

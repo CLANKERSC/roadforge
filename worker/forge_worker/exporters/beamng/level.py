@@ -24,6 +24,7 @@ import rasterio
 from numpy.typing import NDArray
 
 from forge_worker.brand import brand
+from forge_worker.exporters import textures
 from forge_worker.exporters.beamng.dae import write_dae
 from forge_worker.exporters.beamng.ter import TerrainGrid, pack_heights, write_ter
 from forge_worker.roadgeom import Profile
@@ -33,18 +34,20 @@ from forge_worker.terrain import Dtm
 MAX_TERRAIN = 8192  # BeamNG's largest terrain grid
 BLOCK_TILES = 4  # road meshes are grouped into files of 4 x 4 terrain tiles (about 1 km)
 TERRAIN_MATERIAL = "rf_grass"
-TEX = 512  # terrain texture size in pixels
+TEX = 1024  # ground detail texture size in pixels, as in the game's own levels
+BASE_TEX = 2048  # the one texture that covers the whole terrain
+ROAD_TEX = 512  # road surface textures
 
-# our surface -> (BeamNG ground type for physics, RGB 0-1, roughness)
-SURFACES: dict[str, tuple[str, tuple[float, float, float], float]] = {
-    "asphalt": ("ASPHALT", (0.20, 0.20, 0.21), 0.85),
-    "concrete": ("CONCRETE", (0.55, 0.55, 0.53), 0.9),
-    "cobble": ("COBBLESTONE", (0.40, 0.37, 0.34), 0.9),
-    "gravel": ("GRAVEL", (0.52, 0.46, 0.37), 1.0),
-    "shoulder": ("GRAVEL", (0.42, 0.40, 0.34), 1.0),
-    "apron": ("GRASS", (0.33, 0.42, 0.25), 1.0),
-    "marking": ("ASPHALT", (0.92, 0.92, 0.90), 0.6),
-    "wall": ("CONCRETE", (0.66, 0.66, 0.66), 0.9),
+# our surface -> BeamNG ground type (grip and sound)
+SURFACES: dict[str, str] = {
+    "asphalt": "ASPHALT",
+    "concrete": "CONCRETE",
+    "cobble": "COBBLESTONE",
+    "gravel": "GRAVEL",
+    "shoulder": "GRAVEL",
+    "apron": "GRASS",
+    "marking": "ASPHALT",
+    "wall": "CONCRETE",
 }
 NAV_MATERIAL = "rf_road_invisible"
 # AI speed and behaviour hints per road type: drivability as BeamNG's navigation uses it
@@ -74,11 +77,29 @@ def _png(path: Path, array: NDArray[Any]) -> None:
         extra.unlink()
 
 
-def _flat_texture(path: Path, rgb: tuple[int, int, int], grain: int, seed: int) -> None:
-    rng = np.random.default_rng(seed)
-    noise = rng.integers(-grain, grain + 1, (TEX, TEX)) if grain else np.zeros((TEX, TEX), dtype=int)
-    bands = [np.clip(c + noise, 0, 255).astype(np.uint8) for c in rgb]
-    _png(path, np.stack(bands))
+def _flat(value: int, size: int, bands: int = 1) -> NDArray[np.uint8]:
+    return np.full((bands, size, size), value, dtype=np.uint8)
+
+
+def default_ground_photo(size: int = BASE_TEX) -> NDArray[np.uint8]:
+    """Used when no aerial photo is available: soft green with large, faint patches."""
+    patches = textures.tile_noise(size, 5, 2.2, low_cut=2)
+    shade = 0.85 + 0.3 * patches
+    return np.asarray(np.rint(np.stack([82 * shade, 110 * shade, 58 * shade])), dtype=np.uint8)
+
+
+def road_texture_sets() -> dict[str, textures.TextureSet]:
+    t = textures
+    return {
+        "asphalt": t.asphalt(ROAD_TEX),
+        "concrete": t.concrete(ROAD_TEX),
+        "cobble": t.cobble(ROAD_TEX),
+        "gravel": t.gravel(ROAD_TEX),
+        "shoulder": t.gravel(ROAD_TEX, seed=71, base=(112.0, 104.0, 88.0)),
+        "apron": t.grass(ROAD_TEX, seed=81),
+        "marking": t.paint(128),
+        "wall": t.concrete(ROAD_TEX, seed=91),
+    }
 
 
 def shrink_for_beamng(dtm: Dtm) -> tuple[NDArray[np.float32], float]:
@@ -156,6 +177,8 @@ class LevelInputs:
     spawn: dict[str, Any]
     credits: str
     country: str = ""
+    # Aerial or satellite photo of the padded terrain square, (3, n, n) sRGB, north up; None = plain green
+    ground_photo: NDArray[np.uint8] | None = None
 
 
 def _preview(path: Path, dtm: Dtm, profiles: list[Profile], size: int = 512) -> None:
@@ -220,30 +243,65 @@ def write_level(root: Path, inp: LevelInputs) -> dict[str, Any]:
     )
     _png(level / "theTerrain.terrainheightmap.png", grid.ter.heights[::-1][None, :, :])  # picture: north up
     tex = f"{base}/art/terrains"
-    _flat_texture(level / "art/terrains/rf_grass_b.png", (86, 116, 62), 10, 1)
-    _flat_texture(level / "art/terrains/rf_flat_nm.png", (128, 128, 255), 0, 2)
-    _flat_texture(level / "art/terrains/rf_rough_r.png", (235, 235, 235), 0, 3)
-    _flat_texture(level / "art/terrains/rf_white_ao.png", (255, 255, 255), 0, 4)
-    _flat_texture(level / "art/terrains/rf_mid_h.png", (128, 128, 128), 0, 5)
+    # File formats follow the game's own levels: colour and normal maps are 8-bit RGB, the
+    # roughness, ambient-occlusion and height maps are 8-bit grey. (RGB data maps show up as
+    # rainbow noise on the ground.) All detail maps share one size, all base maps another.
+    extent = size * grid.square_size  # metres covered by the whole terrain, padding included
+    photo = inp.ground_photo if inp.ground_photo is not None else default_ground_photo()
+    grass = textures.grass(TEX)
+    far = textures.grass(TEX, seed=151)
+    n = photo.shape[1]
+    files: dict[str, NDArray[np.uint8]] = {
+        "rf_base_b": photo,
+        "rf_base_nm": np.concatenate([_flat(128, n, 2), _flat(255, n)]),
+        "rf_base_r": _flat(235, n),
+        "rf_base_ao": _flat(255, n),
+        "rf_base_h": _flat(128, n),
+    }
+    for stem, ts in (("rf_grass", grass), ("rf_far", far)):
+        files |= {f"{stem}_b": ts.color, f"{stem}_nm": ts.normal, f"{stem}_r": ts.roughness}
+        files |= {f"{stem}_ao": ts.ao, f"{stem}_h": ts.height}
+    for stem, pixels in files.items():
+        _png(level / "art/terrains" / f"{stem}.png", pixels)
+    has_photo = inp.ground_photo is not None
     terrain_material: dict[str, Any] = {
         "class": "TerrainMaterial",
         "name": f"{TERRAIN_MATERIAL}-{_id(lid, 'terrain-material')}",
         "internalName": TERRAIN_MATERIAL,
         "persistentId": _id(lid, "terrain-material"),
         "groundmodelName": "GRASS",
-        "annotation": "NATURE",
-        "version": 1.5,
+        "annotation": "GRASS",
+        # [near, far] strength of the close-up grass over the photo: the photo gives the colour
+        # of the place, the detail gives it grain when you stand on it
+        "baseColorDetailStrength": [0.45 if has_photo else 0.8, 0],
+        "baseColorMacroStrength": [0.15, 0.3 if has_photo else 0.5],
+        "normalDetailStrength": [0.5, 0],
+        "normalMacroStrength": [0.2, 0.2],
+        "roughnessDetailStrength": [0.5, 0.1],
+        "roughnessMacroStrength": [0.1, 0.5],
+        "detailDistances": [0, 0, 40, 90],
+        "detailDistAtten": [0, 0.9],
+        "macroDistances": [5, 10, 1000, 8000],
+        "macroDistAtten": [0.35, 1],
     }
-    for kind, file in (("baseColor", "rf_grass_b"), ("normal", "rf_flat_nm"), ("roughness", "rf_rough_r"),
-                        ("ao", "rf_white_ao"), ("height", "rf_mid_h")):  # fmt: skip
-        for scale, metres in (("Base", 256), ("Macro", 60), ("Detail", 2)):
-            terrain_material[f"{kind}{scale}Tex"] = f"{tex}/{file}.png"
-            terrain_material[f"{kind}{scale}TexSize"] = metres
+    for kind, short in (
+        ("baseColor", "b"),
+        ("normal", "nm"),
+        ("roughness", "r"),
+        ("ao", "ao"),
+        ("height", "h"),
+    ):
+        terrain_material[f"{kind}BaseTex"] = f"{tex}/rf_base_{short}.png"
+        terrain_material[f"{kind}BaseTexSize"] = extent
+        terrain_material[f"{kind}DetailTex"] = f"{tex}/rf_grass_{short}.png"
+        terrain_material[f"{kind}DetailTexSize"] = grass.tile_m
+        terrain_material[f"{kind}MacroTex"] = f"{tex}/rf_far_{short}.png"
+        terrain_material[f"{kind}MacroTexSize"] = 45
     texture_set = {
         "class": "TerrainMaterialTextureSet",
         "name": "rf_TerrainMaterialTextureSet",
         "persistentId": _id(lid, "terrain-texture-set"),
-        "baseTexSize": [TEX, TEX],
+        "baseTexSize": [n, n],
         "detailTexSize": [TEX, TEX],
         "macroTexSize": [TEX, TEX],
     }
@@ -257,6 +315,7 @@ def write_level(root: Path, inp: LevelInputs) -> dict[str, Any]:
     )
 
     # -- road meshes -----------------------------------------------------------
+    road_sets = road_texture_sets()
     blocks: dict[tuple[int, int], list[MeshOut]] = {}
     for m in inp.road_meshes:
         blocks.setdefault((m.tile[0] // BLOCK_TILES, m.tile[1] // BLOCK_TILES), []).append(m)
@@ -268,7 +327,9 @@ def write_level(root: Path, inp: LevelInputs) -> dict[str, Any]:
                 m.name,
                 material_name(m.surface),
                 m.vertices.astype(np.float64),
-                m.uvs.astype(np.float64),
+                # the texture is laid flat over the map (x east, y north), one repeat every
+                # tile_m metres, so it has no seam between road pieces or across a junction
+                m.vertices[:, :2].astype(np.float64) / road_sets[m.surface].tile_m,
                 m.faces.astype(np.int64),
             )
             for m in sorted(meshes, key=lambda m: m.name)
@@ -290,20 +351,37 @@ def write_level(root: Path, inp: LevelInputs) -> dict[str, Any]:
             }
         )
     road_materials: dict[str, Any] = {}
-    for surface, (ground, rgb, rough) in sorted(SURFACES.items()):
+    shapes = f"{base}/art/shapes/roads"
+    for surface, ground in sorted(SURFACES.items()):
         name = material_name(surface)
+        ts = road_sets[surface]
+        # the name endings tell the game how to read each file: colour, normal map or plain data
+        maps = {
+            "baseColorMap": (f"{name}_b.color.png", ts.color),
+            "normalMap": (f"{name}_nm.normal.png", ts.normal),
+            "roughnessMap": (f"{name}_r.data.png", ts.roughness),
+            "ambientOcclusionMap": (f"{name}_ao.data.png", ts.ao),
+        }
+        for file, pixels in maps.values():
+            _png(level / "art/shapes/roads" / file, pixels)
         road_materials[name] = {
             "class": "Material",
             "name": name,
             "mapTo": name,
             "persistentId": _id(lid, name),
             "Stages": [
-                {"baseColorFactor": [*rgb, 1], "roughnessFactor": rough, "metallicFactor": 0},
+                {
+                    **{key: f"{shapes}/{file}" for key, (file, _) in maps.items()},
+                    "baseColorFactor": [1, 1, 1, 1],
+                    "roughnessFactor": 1,
+                    "metallicFactor": 0,
+                },
                 {},
                 {},
                 {},
             ],
             "groundType": ground,
+            "annotation": "ASPHALT" if ground in {"ASPHALT", "CONCRETE", "COBBLESTONE"} else "NATURE",
             "doubleSided": surface == "wall",
             "version": 1.5,
         }
@@ -381,7 +459,6 @@ def write_level(root: Path, inp: LevelInputs) -> dict[str, Any]:
             "squareSize": grid.square_size,
             "maxHeight": grid.max_height,
             "position": [round(v, 3) for v in grid.position],
-            "baseTexSize": 1024,
             "castShadows": True,
         },
         {

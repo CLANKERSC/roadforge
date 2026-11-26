@@ -6,12 +6,14 @@ import io
 import json
 import math
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import rasterio
 from pyproj import Transformer
+from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
 
 from forge_worker.http import HttpError
@@ -180,6 +182,21 @@ def fake_osm(south: float, west: float, north: float, east: float) -> dict[str, 
     return {"elements": elements}
 
 
+def fake_photo(x0: float, y0: float, px: int = 256) -> bytes:
+    """A real JPEG: fields in green and brown, different for every tile."""
+    rng = np.random.default_rng(abs(int(x0 * 7 + y0 * 13)) % (2**32))
+    img = np.zeros((3, px, px), dtype=np.uint8)
+    for r in range(0, px, 64):
+        for c in range(0, px, 64):
+            colour = rng.choice(np.array([[70, 110, 50], [120, 105, 70], [95, 130, 60], [60, 80, 45]]))
+            block = colour[:, None, None] + rng.integers(-25, 25, (3, 64, 64))
+            img[:, r : r + 64, c : c + 64] = np.clip(block, 0, 255)
+    with MemoryFile() as mem:
+        with mem.open(driver="JPEG", width=px, height=px, count=3, dtype="uint8", quality=95) as ds:
+            ds.write(img)
+        return bytes(mem.read())
+
+
 class FakeHttp:
     """Stands in for forge_worker.http.Http. Set flags to simulate outages."""
 
@@ -190,6 +207,8 @@ class FakeHttp:
         self.noisy_lidar = True
         self.offline_hosts: set[str] = set()
         self.busy_hosts: set[str] = set()  # answer "429 Too Many Requests"
+        self.hang_hosts: set[str] = set()  # never answer, like a server that stops sending
+        self.release = threading.Event()  # set it to let hanging requests go
         self.scene_path = scene_path
 
     def _check(self, url: str) -> None:
@@ -197,6 +216,10 @@ class FakeHttp:
         for host in self.offline_hosts:
             if host in url:
                 raise HttpError(url, None, "offline")
+        for host in self.hang_hosts:
+            if host in url:
+                self.release.wait(60)
+                raise HttpError(url, None, "gave up")
         for host in self.busy_hosts:
             if host in url:
                 raise HttpError(url, 429, "Too Many Requests")
@@ -218,7 +241,10 @@ class FakeHttp:
             px = int(params["size"].split(",")[0])
             return FakeResponse(fake_dem_cuzk(bbox, px, self.noisy_lidar), "image/tiff")
         if "ORTOFOTO" in url:
-            return FakeResponse(b"\xff\xd8" + b"x" * (20_000 if self.cuzk_has_data else 500), "image/jpeg")
+            if not self.cuzk_has_data:
+                return FakeResponse(b"\xff\xd8" + b"x" * 500, "image/jpeg")
+            bbox = tuple(float(v) for v in kwargs["params"]["bbox"].split(","))
+            return FakeResponse(fake_photo(bbox[0], bbox[1]), "image/jpeg")
         if "copernicus-dem" in url:
             if "N00_00_E000" in url:
                 raise HttpError(url, 404, "no tile")
