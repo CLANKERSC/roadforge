@@ -46,6 +46,13 @@ def main() -> None:
             str(ROOT / "worker"),
             "--collect-submodules",
             "forge_worker",
+            # geo libraries ship data files and compiled plugins PyInstaller can't see by itself
+            "--collect-all",
+            "rasterio",
+            "--collect-all",
+            "pyproj",
+            "--collect-data",
+            "certifi",
             "--add-data",
             f"{ROOT / 'brand.json'}{sep}.",
             str(ROOT / "worker" / "run_worker.py"),

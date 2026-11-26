@@ -13,8 +13,6 @@ const STATE_LABEL: Record<Job["state"], string> = {
 interface Props {
   jobs: Job[];
   logs: Record<string, LogEntry[]>;
-  connected: boolean;
-  onStartDemo: () => void;
   onCancel: (id: string) => void;
   onRebuild: (id: string) => void;
   onShowLogs: (id: string) => void;
@@ -29,22 +27,14 @@ function useNow(): number {
   return now;
 }
 
-export function JobsPanel({ jobs, logs, connected, onStartDemo, onCancel, onRebuild, onShowLogs }: Props) {
+export function JobsPanel({ jobs, logs, onCancel, onRebuild, onShowLogs }: Props) {
   const [openLogs, setOpenLogs] = useState<string | null>(null);
   const now = useNow();
 
   return (
-    <aside className="panel">
-      <div className="panel-head">
-        <h2>Builds</h2>
-        <button className="primary" onClick={onStartDemo} disabled={!connected}>
-          Run demo build
-        </button>
-      </div>
-      <p className="muted small">
-        M0 runs a pretend 3-stage build so you can see progress, cancel and rebuild working.
-      </p>
-      {jobs.length === 0 && <p className="muted">No builds yet.</p>}
+    <section className="builds">
+      <h2>Builds</h2>
+      {jobs.length === 0 && <p className="muted small">No builds yet.</p>}
       <ul className="jobs">
         {jobs.map((job) => (
           <JobCard
@@ -63,7 +53,7 @@ export function JobsPanel({ jobs, logs, connected, onStartDemo, onCancel, onRebu
           />
         ))}
       </ul>
-    </aside>
+    </section>
   );
 }
 

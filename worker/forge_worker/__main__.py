@@ -43,7 +43,13 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="exit when stdin closes (the desktop app passes this so the worker dies with it)",
     )
+    parser.add_argument("--self-test", action="store_true", help="check bundled libraries work, then exit")
     args = parser.parse_args(argv)
+    if args.self_test:
+        from forge_worker.selftest import run_self_test
+
+        run_self_test()
+        return
     if args.exit_on_stdin_close:
         threading.Thread(target=_exit_when_stdin_closes, daemon=True).start()
 

@@ -10,9 +10,15 @@ open data and exports a ready-to-install ZIP for each game.
 
 ## Status
 
-**Milestone M0 – skeleton** (this version): desktop window with a world map, a local engine
-("worker") and a build queue that runs a pretend 3-stage build with live progress, cancel,
-rebuild and logs. No real map building yet; that starts in M1. See [CHANGELOG.md](CHANGELOG.md).
+**Milestone M1 – selection + downloads** (this version). You can search a place anywhere in the
+world, draw an **Area** (box or free shape) or a **Road A to B** with a width on each side, see
+its size, limits and which data will be used, name it, pick the game(s) and press **Build it**.
+The build checks the selection and downloads terrain heights, imagery and OpenStreetMap data
+into a local cache. Turning that into a drivable map starts in M2. See [CHANGELOG.md](CHANGELOG.md).
+
+Data quality depends on the place: everywhere on Earth gets OpenStreetMap + 30 m elevation +
+10 m satellite imagery; the Czech Republic gets 2 m LiDAR terrain and 0.5 m aerial photos.
+More countries are added as adapters (see [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md)).
 
 ## Install on Windows (the normal way)
 
@@ -58,6 +64,8 @@ Tests and checks:
 
 ```bash
 pytest -q                                  # worker tests (from repo root, venv active)
+FORGE_LIVE=1 pytest -q -s tests/live       # small real downloads from the live services
+node tests/e2e/e2e.mjs                     # click-through test: real UI + engine, fake internet
 ruff check . && (cd worker && mypy forge_worker)
 cd app && npm run typecheck && npm test
 ```
@@ -79,6 +87,10 @@ progress over Server-Sent Events (`/events?token=…`). The worker exits when th
 | FastAPI + uvicorn | small typed local HTTP API between UI and worker |
 | SQLite (stdlib) | job queue and history that survive restarts, no server |
 | pytest, httpx, ruff, mypy | tests, lint, type checks |
+| requests + tenacity | downloads with retries and backoff |
+| pyproj, shapely, numpy | projections, polygon maths, arrays |
+| rasterio (GDAL) | read/crop GeoTIFFs, also remote cloud-optimised ones |
+| Playwright (dev only) | click-through test of the UI |
 | PyInstaller | ships the worker as one .exe inside the installer |
 | Tauri 2 | desktop window with a small installer (.msi / .exe) |
 | React + TypeScript + Vite | UI framework, types, fast build |

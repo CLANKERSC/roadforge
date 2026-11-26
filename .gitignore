@@ -13,3 +13,4 @@ cache/
 app/src-tauri/binaries/
 build/
 app/src-tauri/gen/
+tests/e2e/out/
