@@ -18,7 +18,7 @@ markings), runs an automatic **drivability check**, and writes a **BeamNG.drive 
 **View in 3D** shows the result; **Install to BeamNG** copies the mod into the game, where the
 map appears in Freeroam under the name you gave it. Assetto Corsa export comes next. The ground
 shows the aerial photo of the place and the roads have real surfaces and lane lines; buildings
-stand where the map has them. Trees are not built yet. See [CHANGELOG.md](CHANGELOG.md).
+and trees stand where the map has them. See [CHANGELOG.md](CHANGELOG.md).
 
 **The quality rule:** roads follow the real world as closely as the data allows, but they always
 come out drivable. Where the map or the height data is wrong or too rough (a bump, a cliff, a

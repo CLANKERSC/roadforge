@@ -90,7 +90,14 @@ and a `SpawnSphere` named `spawns_default`, which `info.json` lists as the defau
 mesh collision under `main/MissionGroup/Buildings`. Six materials: four tinted plaster walls
 sharing one window texture, clay tiles, flat-roof sheeting. **Assumed:** `annotation: BUILDINGS`.
 
+## Trees and bushes
+
+As stock levels do it: `art/forest/managedItemData.json` (one `TSForestItemData` per model),
+`forest/<model>.forest4.json` (one plant per line: `pos`, `rotationMatrix`, `scale`, `type`) and a
+`Forest` object named `theForest`. **Assumed:** a level may point `shapeFile` at the shared
+library `/assets/meshes/foliage/trees_library/...` (present in `content/assets/meshes.zip`).
+
 ## Not done yet
 
- trees, water, tunnels (open
+ Water, tunnels (open
 cuttings for now).

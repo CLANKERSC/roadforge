@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3 – Trees (2026-11-26)
+
+- Forests, scrub, orchards, tree rows and single trees from OpenStreetMap are planted in the
+  BeamNG map through the game's own forest system, using the tree models every BeamNG install
+  already has (beech, oak, aspen). Nothing grows on a road, within 3 m of its edge or against
+  a building. The same map always gets the same trees. Very large forests are thinned so a
+  map never holds more than about 60,000 plants.
+
 ## 0.3.2 – Buildings (2026-11-26)
 
 - Buildings from OpenStreetMap stand in the BeamNG map: real outline and position, real height

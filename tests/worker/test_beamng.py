@@ -354,3 +354,53 @@ def test_buildings_stand_on_the_ground_and_off_the_road() -> None:
     assert (
         roof[:, 2].max() > near[:, 2].max() - 1e-6 and roof[:, 2].max() - ground_low > 7.0
     )  # a pitched roof on top
+
+
+def test_trees_fill_forests_but_never_stand_on_a_road(tmp_path: Path) -> None:
+    from shapely.geometry import LineString, Point, box
+
+    from forge_worker.geo import Georef
+    from forge_worker.vegetation import load_areas, place_plants
+
+    georef = Georef(50.0, 14.0)
+    elements: list[dict[str, Any]] = []
+
+    def node(i: int, x: float, y: float, **tags: str) -> int:
+        lon, lat = georef.to_lonlat(x, y)
+        elements.append({"type": "node", "id": i, "lon": lon, "lat": lat, **({"tags": tags} if tags else {})})
+        return i
+
+    wood = [node(1, 0, 0), node(2, 200, 0), node(3, 200, 200), node(4, 0, 200)]
+    elements.append({"type": "way", "id": 10, "nodes": [*wood, wood[0]], "tags": {"natural": "wood"}})
+    # a forest drawn as a relation: its outline way has no tags of its own
+    ring = [node(5, 300, 0), node(6, 400, 0), node(7, 400, 100), node(8, 300, 100)]
+    elements.append({"type": "way", "id": 11, "nodes": [*ring, ring[0]]})
+    elements.append(
+        {
+            "type": "relation",
+            "id": 20,
+            "tags": {"type": "multipolygon", "landuse": "forest"},
+            "members": [{"type": "way", "ref": 11, "role": "outer"}],
+        }  # fmt: skip
+    )
+    node(30, -50, 50, natural="tree")
+    node(31, 100, 100, natural="tree")  # stands in the middle of the road below
+    row = [node(40, -100, -50), node(41, -10, -50)]
+    elements.append({"type": "way", "id": 12, "nodes": row, "tags": {"natural": "tree_row"}})
+    path = tmp_path / "cell.json"
+    path.write_text(json.dumps({"elements": elements}), encoding="utf-8")
+
+    areas, points, rows = load_areas([path], georef)
+    assert len(areas["forest"]) == 2 and len(points) == 2 and len(rows) == 1
+    road = LineString([(100, -300), (100, 300)]).buffer(6)
+    dtm = Dtm(
+        z=np.full((400, 400), 250, dtype=np.float32), west=-300.0, north=400.0, res=2.0, proj4=georef.proj4
+    )
+    plants, stats = place_plants(areas, points, rows, box(-250, -250, 450, 350), [road], dtm, seed=7)
+    assert stats["forest"] > 700 and stats["single"] == 1 and stats["row"] >= 10
+    assert stats["left_out_near_roads_or_buildings"] == 1
+    assert not any(road.contains(Point(p.x, p.y)) for p in plants)  # the road stays clear
+    assert any(300 < p.x < 400 for p in plants)  # the relation forest was found too
+    assert all(abs(p.z - 249.9) < 1e-6 and 0.8 <= p.scale <= 1.25 for p in plants)
+    again, _ = place_plants(areas, points, rows, box(-250, -250, 450, 350), [road], dtm, seed=7)
+    assert again == plants  # same map, same trees

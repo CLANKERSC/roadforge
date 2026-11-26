@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -38,8 +39,9 @@ from forge_worker.stages.common import (
 )
 from forge_worker.stages.world import CODE_VERSION, load_road_model
 from forge_worker.terrain import Dtm
+from forge_worker.vegetation import Plant, load_areas, place_plants
 
-EXPORT_VERSION = 3
+EXPORT_VERSION = 4
 
 
 def run_export(ctx: StageContext) -> None:
@@ -74,7 +76,9 @@ def run_export(ctx: StageContext) -> None:
         ctx.report(0.2, "Laying the aerial photo over the ground")
         photo = _ground_photo(ctx, dtm)
         ctx.report(0.4, "Putting up the buildings")
-        blocks, n_buildings = _buildings(ctx, dtm, profiles)
+        blocks, footprints = _buildings(ctx, dtm, profiles)
+        ctx.report(0.5, "Planting trees")
+        plants = _plants(ctx, dtm, profiles, footprints, level_id)
         summary = write_level(
             tree,
             LevelInputs(
@@ -87,6 +91,7 @@ def run_export(ctx: StageContext) -> None:
                 credits=(ctx.workdir / "CREDITS.txt").read_text(encoding="utf-8"),
                 ground_photo=photo,
                 buildings=blocks,
+                plants=plants,
             ),
         )
         ctx.check_cancelled()
@@ -116,7 +121,7 @@ def _verdict(report: dict[str, Any]) -> str:
 
 def _buildings(
     ctx: StageContext, dtm: Dtm, profiles: list[Profile]
-) -> tuple[dict[str, dict[str, Soup]], int]:
+) -> tuple[dict[str, dict[str, Soup]], list[BaseGeometry]]:
     """Buildings from the map, grouped into 512 m blocks so the game only draws the near ones."""
     vectors = read_json(ctx.workdir / "fetch_manifest.json")["layers"]["vectors"]
     sel = selection_from_params(ctx.params)
@@ -137,7 +142,31 @@ def _buildings(
             f"Left out {stats['buildings_on_road_left_out']} buildings that the map draws on top of a road"
         )
     ctx.log(f"Buildings: {len(found)} from the map, with their real outline and height where the map has it")
-    return blocks, len(found)
+    return blocks, [b.footprint for b in found]
+
+
+def _plants(
+    ctx: StageContext, dtm: Dtm, profiles: list[Profile], footprints: list[BaseGeometry], level_id: str
+) -> list[Plant]:
+    """Trees and bushes where the map has forests, orchards, scrub, tree rows and single trees."""
+    vectors = read_json(ctx.workdir / "fetch_manifest.json")["layers"]["vectors"]
+    sel = selection_from_params(ctx.params)
+    areas, points, rows = load_areas([ctx.env.cache.root / f["path"] for f in vectors["files"]], sel.georef)
+    # nothing grows on a road or within 3 m of its edge, nor inside or against a building
+    clear: list[BaseGeometry] = [
+        LineString(p.xy).buffer(p.edge.width / 2 + 3.0) for p in profiles if len(p.xy) >= 2
+    ]
+    clear += [f.buffer(2.0) for f in footprints]
+    area = sel.skirt_local.intersection(dtm_box(dtm))
+    plants, stats = place_plants(areas, points, rows, area, clear, dtm, zlib.crc32(level_id.encode()))
+    if plants:
+        ctx.log(
+            f"Trees and bushes: {len(plants)} ({stats['forest']} in forests, {stats['scrub']} scrub, "
+            f"{stats['orchard']} orchard, {stats['row']} in tree rows, {stats['single']} single trees)"
+        )
+    else:
+        ctx.log("The map shows no forests or trees in this area")
+    return plants
 
 
 def dtm_box(dtm: Dtm) -> BaseGeometry:

@@ -31,6 +31,7 @@ from forge_worker.exporters.beamng.ter import TerrainGrid, pack_heights, write_t
 from forge_worker.roadgeom import Profile
 from forge_worker.scene import MeshOut
 from forge_worker.terrain import Dtm
+from forge_worker.vegetation import Plant
 
 MAX_TERRAIN = 8192  # BeamNG's largest terrain grid
 BLOCK_TILES = 4  # road meshes are grouped into files of 4 x 4 terrain tiles (about 1 km)
@@ -59,6 +60,31 @@ BUILDING_MATERIALS: dict[str, tuple[str, tuple[float, float, float]]] = {
     "roof_tile": ("roof_tile", (1.0, 1.0, 1.0)),
     "roof_flat": ("roof_flat", (1.0, 1.0, 1.0)),
 }
+# Tree and bush models: the game's own shared library, present in every install. Per kind of
+# planting, the models to choose from (folder under /assets/meshes/foliage/, model name).
+_LIB = "trees_library"
+TREE_MODELS: dict[str, list[tuple[str, str]]] = {
+    "forest": [
+        (f"{_LIB}/beech", "tree_beech_forest_a"), (f"{_LIB}/beech", "tree_beech_forest_b"),
+        (f"{_LIB}/oak", "tree_oak_forest_a"), (f"{_LIB}/oak", "tree_oak_forest_b"),
+        (f"{_LIB}/birch", "tree_aspen_forest_a"), (f"{_LIB}/birch", "tree_aspen_forest_b"),
+        (f"{_LIB}/oak", "tree_oak_large_a"), (f"{_LIB}/beech", "tree_beech_large_b"),
+    ],
+    "single": [
+        (f"{_LIB}/oak", "tree_oak_large_a"), (f"{_LIB}/oak", "tree_oak_large_b"),
+        (f"{_LIB}/oak", "tree_oak_large_c"), (f"{_LIB}/beech", "tree_beech_large_b"),
+        (f"{_LIB}/beech", "tree_beech_large_c"), (f"{_LIB}/birch", "tree_aspen_large_a"),
+    ],
+    "row": [
+        (f"{_LIB}/oak", "tree_oak_sml_a"), (f"{_LIB}/oak", "tree_oak_sml_b"),
+        (f"{_LIB}/beech", "tree_beech_small_b"), (f"{_LIB}/birch", "tree_aspen_small_a"),
+    ],
+    "orchard": [(f"{_LIB}/oak", "tree_oak_sml_a"), (f"{_LIB}/beech", "tree_beech_small_d")],
+    "scrub": [
+        (f"{_LIB}/oak", "tree_oak_bush_a"), (f"{_LIB}/oak", "tree_oak_bush_b"),
+        (f"{_LIB}/beech", "tree_beech_bush_a"), ("bushes", "generibush"),
+    ],
+}  # fmt: skip
 NAV_MATERIAL = "rf_road_invisible"
 # AI speed and behaviour hints per road type: drivability as BeamNG's navigation uses it
 DRIVABILITY = {"track": 0.5, "service": 0.7}
@@ -191,6 +217,7 @@ class LevelInputs:
     ground_photo: NDArray[np.uint8] | None = None
     # buildings, grouped into blocks: block name -> material ("wall_0", "roof_tile", ...) -> triangles
     buildings: dict[str, dict[str, Soup]] = field(default_factory=dict)
+    plants: list[Plant] = field(default_factory=list)
 
 
 def _preview(path: Path, dtm: Dtm, profiles: list[Profile], size: int = 512) -> None:
@@ -487,6 +514,53 @@ def write_level(root: Path, inp: LevelInputs) -> dict[str, Any]:
             _lines(building_statics), encoding="utf-8"
         )
 
+    # -- trees and bushes ------------------------------------------------------
+    forest_types: dict[str, list[Plant]] = {}
+    for plant in inp.plants:
+        models = TREE_MODELS[plant.kind]
+        folder, model = models[min(int(plant.pick * len(models)), len(models) - 1)]
+        forest_types.setdefault(f"{folder}/{model}", []).append(plant)
+    if forest_types:
+        (level / "art/forest").mkdir(parents=True, exist_ok=True)
+        (level / "forest").mkdir(parents=True, exist_ok=True)
+        item_data: dict[str, Any] = {}
+        for key, plants in sorted(forest_types.items()):
+            model = key.rsplit("/", 1)[1]
+            item_data[model] = {
+                "name": model,
+                "internalName": model,
+                "class": "TSForestItemData",
+                "persistentId": _id(lid, f"forest-{model}"),
+                "radius": 0.2 if "bush" in model else 0.45,
+                "shapeFile": f"/assets/meshes/foliage/{key}.dae",
+            }
+            rows = []
+            for pl in plants:
+                c, s_ = math.cos(math.radians(pl.turn_deg)), math.sin(math.radians(pl.turn_deg))
+                rows.append(
+                    {
+                        "ctxid": 0,
+                        "pos": [round(pl.x, 3), round(pl.y, 3), round(pl.z, 3)],
+                        "rotationMatrix": [
+                            round(c, 6),
+                            round(s_, 6),
+                            0,
+                            round(-s_, 6),
+                            round(c, 6),
+                            0,
+                            0,
+                            0,
+                            1,
+                        ],
+                        "scale": round(pl.scale, 4),
+                        "type": model,
+                    }
+                )
+            (level / "forest" / f"{model}.forest4.json").write_text(_lines(rows), encoding="utf-8")
+        (level / "art/forest/managedItemData.json").write_text(
+            json.dumps(item_data, indent=2, sort_keys=True), encoding="utf-8"
+        )
+
     # -- scene objects ---------------------------------------------------------
     def group(name: str, parent: str | None) -> dict[str, Any]:
         obj = {"class": "SimGroup", "name": name, "persistentId": _id(lid, f"group-{name}")}
@@ -559,6 +633,19 @@ def write_level(root: Path, inp: LevelInputs) -> dict[str, Any]:
         group("RoadMeshes", "MissionGroup"),
         group("Roads", "MissionGroup"),
         *([group("Buildings", "MissionGroup")] if building_statics else []),
+        *(
+            [
+                {
+                    "class": "Forest",
+                    "name": "theForest",
+                    "__parent": "MissionGroup",
+                    "persistentId": _id(lid, "theForest"),
+                    "lodReflectScalar": 0.15,
+                }
+            ]
+            if forest_types
+            else []
+        ),
     ]
     roads = [decal_road(p, lid) for p in inp.profiles if len(p.s) >= 2 and p.length >= 2.0]
     (level / "main/items.level.json").write_text(_lines([group("MissionGroup", None)]), encoding="utf-8")
@@ -601,6 +688,7 @@ def write_level(root: Path, inp: LevelInputs) -> dict[str, Any]:
         "road_mesh_files": len(statics),
         "ai_roads": len(roads),
         "building_files": len(building_statics),
+        "plants": len(inp.plants),
     }
 
 
