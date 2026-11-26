@@ -1,0 +1,14 @@
+node_modules/
+dist/
+target/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+app/.env.local
+cache/
+*.sqlite
+*.sqlite3
+.DS_Store
+app/src-tauri/binaries/
+build/

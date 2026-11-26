@@ -1,0 +1,6 @@
+{
+  "name": "RoadForge",
+  "id": "roadforge",
+  "tagline": "Draw your road. Drive it.",
+  "colors": { "accent": "#ff7a1a", "accent2": "#2bd4c4", "bg": "#0e1116", "panel": "#161b22", "text": "#e6edf3" }
+}
